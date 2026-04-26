@@ -4,11 +4,13 @@ import { socket } from './socket';
 import { MainMenu } from './components/MainMenu';
 import { PokerTable } from './components/PokerTable';
 import type { CompletedHand } from './components/HandHistoryPanel';
+import type { Settings } from './components/SettingsModal';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [handHistory, setHandHistory] = useState<CompletedHand[]>([]);
+  const [settings, setSettings] = useState<Settings>({ showOdds: false });
   const lastSavedHand = useRef<number>(0);
 
   useEffect(() => {
@@ -54,7 +56,7 @@ export default function App() {
       {!gameState || !inGame ? (
         <MainMenu gameState={gameState} />
       ) : (
-        <PokerTable state={gameState} handHistory={handHistory} />
+        <PokerTable state={gameState} handHistory={handHistory} settings={settings} onSettingsChange={setSettings} />
       )}
     </div>
   );

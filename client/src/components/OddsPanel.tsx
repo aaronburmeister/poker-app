@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Card, GameState, Rank, Suit } from '@poker/shared';
-import { getBestHand, compareHands, HandRank } from '@poker/shared';
+import { getBestHand, HandRank } from '@poker/shared';
 
 // ── Deck ─────────────────────────────────────────────────────────────────────
 
@@ -12,18 +12,87 @@ const RANK_VALUE: Record<Rank, number> = {
   '2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'T':10,'J':11,'Q':12,'K':13,'A':14,
 };
 
+const RANK_CHAR: Record<number, string> = {
+  14:'A',13:'K',12:'Q',11:'J',10:'T',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3',2:'2',
+};
+
+// ── Preflop HU equity lookup ──────────────────────────────────────────────────
+// Heads-up equity vs one random opponent for all 169 canonical starting hands.
+// Values sourced from simulation data (±1% for premium hands, ±3% for weak hands).
+// Used in place of a coarse tier table so the multiway formula has an accurate base.
+
+const PREFLOP_HU_EQUITY: Record<string, number> = {
+  // Pairs
+  'AA':85,'KK':82,'QQ':80,'JJ':77,'TT':75,'99':72,'88':69,'77':66,'66':63,'55':60,'44':57,'33':54,'22':51,
+  // Ace-high suited
+  'AKs':67,'AQs':66,'AJs':65,'ATs':64,'A9s':63,'A8s':62,'A7s':61,'A6s':60,'A5s':60,'A4s':59,'A3s':58,'A2s':57,
+  // Ace-high offsuit
+  'AKo':65,'AQo':64,'AJo':63,'ATo':61,'A9o':59,'A8o':58,'A7o':57,'A6o':56,'A5o':56,'A4o':55,'A3o':54,'A2o':53,
+  // King-high suited
+  'KQs':63,'KJs':62,'KTs':61,'K9s':59,'K8s':57,'K7s':56,'K6s':55,'K5s':54,'K4s':53,'K3s':52,'K2s':51,
+  // King-high offsuit
+  'KQo':61,'KJo':60,'KTo':58,'K9o':56,'K8o':54,'K7o':53,'K6o':52,'K5o':51,'K4o':50,'K3o':49,'K2o':48,
+  // Queen-high suited
+  'QJs':60,'QTs':59,'Q9s':57,'Q8s':55,'Q7s':53,'Q6s':52,'Q5s':51,'Q4s':50,'Q3s':49,'Q2s':48,
+  // Queen-high offsuit
+  'QJo':58,'QTo':56,'Q9o':54,'Q8o':52,'Q7o':50,'Q6o':49,'Q5o':48,'Q4o':47,'Q3o':46,'Q2o':45,
+  // Jack-high suited
+  'JTs':58,'J9s':56,'J8s':54,'J7s':52,'J6s':50,'J5s':49,'J4s':48,'J3s':47,'J2s':46,
+  // Jack-high offsuit
+  'JTo':56,'J9o':53,'J8o':51,'J7o':49,'J6o':47,'J5o':46,'J4o':45,'J3o':44,'J2o':43,
+  // Ten-high suited
+  'T9s':56,'T8s':54,'T7s':51,'T6s':49,'T5s':47,'T4s':46,'T3s':45,'T2s':44,
+  // Ten-high offsuit
+  'T9o':53,'T8o':51,'T7o':48,'T6o':46,'T5o':44,'T4o':43,'T3o':42,'T2o':41,
+  // Nine-high suited
+  '98s':53,'97s':51,'96s':49,'95s':47,'94s':45,'93s':42,'92s':40,
+  // Nine-high offsuit
+  '98o':50,'97o':48,'96o':46,'95o':44,'94o':41,'93o':38,'92o':36,
+  // Eight-high suited
+  '87s':51,'86s':49,'85s':47,'84s':45,'83s':41,'82s':39,
+  // Eight-high offsuit
+  '87o':48,'86o':46,'85o':43,'84o':41,'83o':38,'82o':35,
+  // Seven-high suited
+  '76s':49,'75s':47,'74s':44,'73s':41,'72s':38,
+  // Seven-high offsuit
+  '76o':46,'75o':43,'74o':41,'73o':37,'72o':34,
+  // Six-high suited
+  '65s':48,'64s':45,'63s':42,'62s':39,
+  // Six-high offsuit
+  '65o':45,'64o':42,'63o':39,'62o':36,
+  // Five-high suited
+  '54s':46,'53s':43,'52s':40,
+  // Five-high offsuit
+  '54o':43,'53o':40,'52o':37,
+  // Four-high suited
+  '43s':44,'42s':41,
+  // Four-high offsuit
+  '43o':41,'42o':38,
+  // Three-high
+  '32s':42,'32o':38,
+};
+
 // ── Preflop strength ─────────────────────────────────────────────────────────
 
 type PreflopTier = 'Premium' | 'Strong' | 'Playable' | 'Speculative' | 'Weak';
 
+// 'draw'      — pocket pairs (set mining) and suited connectors/one-gappers:
+//               good implied odds, can profitably call with a moderate negative edge.
+// 'dominated' — offsuit hands where pairing the high card gives a weak kicker
+//               (e.g. K7o, Q6o, J5o): suffer from reverse implied odds; require
+//               positive immediate EV to call.
+// 'neutral'   — everything else: use a moderate threshold.
+type ImpliedOddsProfile = 'draw' | 'dominated' | 'neutral';
+
 interface PreflopStrength {
   tier: PreflopTier;
-  label: string;       // e.g. "AKs", "Pocket Jacks"
-  equityVsRandom: number; // rough %
+  label: string;
+  equityVsRandom: number;
+  impliedOddsProfile: ImpliedOddsProfile;
 }
 
 function getPreflopStrength(cards: Card[]): PreflopStrength {
-  if (cards.length < 2) return { tier: 'Weak', label: '—', equityVsRandom: 0 };
+  if (cards.length < 2) return { tier: 'Weak', label: '—', equityVsRandom: 0, impliedOddsProfile: 'neutral' };
   const [a, b] = cards;
   const v1 = RANK_VALUE[a.rank], v2 = RANK_VALUE[b.rank];
   const hi = Math.max(v1, v2), lo = Math.min(v1, v2);
@@ -31,41 +100,44 @@ function getPreflopStrength(cards: Card[]): PreflopStrength {
   const isPair = hi === lo;
   const gap = hi - lo;
   const s = suited ? 's' : 'o';
-  const RANK_NAME: Record<number,string> = {14:'A',13:'K',12:'Q',11:'J',10:'T',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3',2:'2'};
+
   const label = isPair
-    ? `Pocket ${RANK_NAME[hi]}s`
-    : `${RANK_NAME[hi]}${RANK_NAME[lo]}${s}`;
+    ? `Pocket ${RANK_CHAR[hi]}s`
+    : `${RANK_CHAR[hi]}${RANK_CHAR[lo]}${s}`;
 
+  const key = isPair ? `${RANK_CHAR[hi]}${RANK_CHAR[hi]}` : `${RANK_CHAR[hi]}${RANK_CHAR[lo]}${s}`;
+  const equityVsRandom = PREFLOP_HU_EQUITY[key] ?? 40;
+
+  // Tier is used only for the color label — equity comes from the lookup above.
+  let tier: PreflopTier;
   if (isPair) {
-    if (hi >= 14) return { tier: 'Premium',     label, equityVsRandom: 85 };
-    if (hi >= 12) return { tier: 'Premium',     label, equityVsRandom: hi === 13 ? 82 : 79 };
-    if (hi >= 10) return { tier: 'Strong',      label, equityVsRandom: hi === 11 ? 77 : 75 };
-    if (hi >= 7)  return { tier: 'Playable',    label, equityVsRandom: 62 };
-    return               { tier: 'Speculative', label, equityVsRandom: 56 };
+    tier = hi >= 12 ? 'Premium' : hi >= 10 ? 'Strong' : hi >= 7 ? 'Playable' : 'Speculative';
+  } else if (equityVsRandom >= 63) {
+    tier = 'Premium';
+  } else if (equityVsRandom >= 58) {
+    tier = 'Strong';
+  } else if (equityVsRandom >= 50) {
+    tier = suited && gap <= 2 ? 'Playable' : (hi >= 11 && gap <= 2 ? 'Playable' : 'Speculative');
+  } else if (equityVsRandom >= 44) {
+    tier = 'Speculative';
+  } else {
+    tier = 'Weak';
   }
 
-  // Ace-high
-  if (hi === 14) {
-    if (lo === 13) return { tier: 'Premium',  label, equityVsRandom: suited ? 67 : 65 };
-    if (lo >= 11)  return { tier: 'Strong',   label, equityVsRandom: suited ? 65 : 63 };
-    if (lo === 10) return { tier: 'Strong',   label, equityVsRandom: suited ? 64 : 60 };
-    if (lo >= 7)   return { tier: 'Playable', label, equityVsRandom: suited ? 61 : 57 };
-    return               { tier: suited ? 'Speculative' : 'Weak', label, equityVsRandom: suited ? 58 : 53 };
+  // Pocket pairs and suited connectors/one-gappers have good implied odds (set mining,
+  // flush/straight draws that either hit big or fold cheaply).
+  // Offsuit hands where pairing the high card gives a dominated kicker suffer from
+  // reverse implied odds — they lose big pots to better kickers.
+  let impliedOddsProfile: ImpliedOddsProfile;
+  if (isPair || (suited && gap <= 2)) {
+    impliedOddsProfile = 'draw';
+  } else if (!suited && hi >= 11 && lo <= 8) {
+    impliedOddsProfile = 'dominated';
+  } else {
+    impliedOddsProfile = 'neutral';
   }
 
-  // King-high
-  if (hi === 13) {
-    if (lo === 12) return { tier: suited ? 'Strong' : 'Playable', label, equityVsRandom: suited ? 63 : 60 };
-    if (lo >= 10)  return { tier: suited ? 'Playable' : 'Speculative', label, equityVsRandom: suited ? 60 : 56 };
-    return               { tier: suited ? 'Speculative' : 'Weak', label, equityVsRandom: suited ? 56 : 50 };
-  }
-
-  // Connected / semi-connected suited
-  if (gap <= 2 && suited && hi >= 9) return { tier: 'Playable',    label, equityVsRandom: 56 };
-  if (gap <= 1 && suited)            return { tier: 'Speculative', label, equityVsRandom: 52 };
-  if (gap <= 2 && hi >= 11)          return { tier: 'Playable',    label, equityVsRandom: 54 };
-
-  return { tier: 'Weak', label, equityVsRandom: suited ? 50 : 46 };
+  return { tier, label, equityVsRandom, impliedOddsProfile };
 }
 
 const TIER_COLOR: Record<PreflopTier, string> = {
@@ -79,23 +151,17 @@ const TIER_COLOR: Record<PreflopTier, string> = {
 // ── Genuine out detection ─────────────────────────────────────────────────────
 
 /**
- * Returns true only if newCard genuinely helps the player's own hand,
- * not just because it pairs a board card that anyone could use.
+ * Returns true only if newCard genuinely helps the player using their hole cards,
+ * not just because it pairs a board card that any player could use.
  *
- * Turn (4 community): compare hole+board+new vs board+new directly (5 cards).
- * Flop (3 community): board-only is 4 cards, so use targeted heuristics instead.
+ * The direct board comparison (hero vs board-only) was previously used on the turn
+ * but incorrectly counted board-pairing cards as outs: e.g. a second Ace gives the
+ * hero a better kicker than the bare board, but opponents also play the board Ace
+ * and may have better kickers. Heuristics avoid this by requiring a hole-card link.
  */
 function isGenuineOut(holeCards: Card[], community: Card[], newCard: Card, currentRank: number): boolean {
   const improved = getBestHand([...holeCards, ...community, newCard]);
   if (improved.rank <= currentRank) return false;
-
-  if (community.length === 4) {
-    // Turn: board + new = exactly 5 cards — direct comparison possible
-    const boardOnly = getBestHand([...community, newCard]);
-    return compareHands(improved, boardOnly) > 0;
-  }
-
-  // Flop heuristics: check whether a hole card is the reason for the improvement
 
   const holeRanks = new Set(holeCards.map(c => c.rank));
   const holeSuits = holeCards.map(c => c.suit);
@@ -169,6 +235,22 @@ function getHandDistribution(myCards: Card[], community: Card[]): HandDistributi
   })).filter(d => d.pct > 0).sort((a, b) => b.pct - a.pct);
 }
 
+// ── Multiway preflop equity ───────────────────────────────────────────────────
+
+/**
+ * Converts heads-up equity to N-opponent equity using a calibrated per-opponent
+ * decay factor. e^N (independent wins) is wrong for weak hands because opponents'
+ * hands are correlated — one strong opponent means the others are likely weaker.
+ * Calibrated so: AA 85%→54% vs 4, avg 50%→25% vs 4, 9-3o 37%→9% vs 4.
+ */
+function multiwayPreflopEquity(e: number, numOpponents: number): number {
+  if (numOpponents <= 1) return e;
+  // Strong hands retain edge better (decay ~0.86); weak hands degrade faster (decay ~0.62).
+  const slope = e >= 0.5 ? 0.203 : 1.31;
+  const decay = 0.794 + (e - 0.5) * slope;
+  return e * Math.pow(Math.max(0, decay), numOpponents - 1);
+}
+
 // ── Recommendation ────────────────────────────────────────────────────────────
 
 interface RaiseSuggestion {
@@ -232,6 +314,7 @@ function getRecommendation(
   callAmount: number,
   handName: string | null,
   preflopTier: PreflopTier | null,
+  preflopProfile: ImpliedOddsProfile | null,
   cardsToRiver: number,
   currentPot: number,
   myBet: number,
@@ -266,8 +349,15 @@ function getRecommendation(
       return withRaise('RAISE', 'Premium hand — maximize value before the flop.');
     if (preflopTier === 'Strong')
       return { action: 'CALL', reason: 'Strong hand — worth calling most raises.' };
-    if (preflopTier === 'Playable' || preflopTier === 'Speculative')
+    if (preflopTier === 'Playable' || preflopTier === 'Speculative') {
+      // draw (pairs/suited connectors): lenient — good implied odds justify a small negative edge.
+      // dominated (weak offsuit kickers): strict — reverse implied odds mean we need positive EV.
+      // neutral: moderate threshold.
+      const foldEdge = preflopProfile === 'draw' ? -12 : preflopProfile === 'dominated' ? 0 : -5;
+      if (edge < foldEdge)
+        return { action: 'FOLD', reason: `Equity (~${Math.round(equityPct)}%) doesn't cover the ${Math.round(potOddsPct)}% needed — kicker-dominated hands lose big pots post-flop.` };
       return { action: 'CALL', reason: 'Decent hand — calling is reasonable, but be cautious against large raises.' };
+    }
     return { action: 'FOLD', reason: 'Weak hand — not worth calling without pot odds.' };
   }
 
@@ -276,7 +366,9 @@ function getRecommendation(
       return withRaise('BET', 'Strong hand — bet to build the pot and charge draws.');
     if (equityPct >= 40)
       return { action: 'CHECK', reason: 'Moderate hand — check to control the pot size.' };
-    return { action: 'CHECK', reason: 'Weak hand — check and reassess on the next card.' };
+    return { action: 'CHECK', reason: cardsToRiver === 0
+      ? 'Weak hand — check and hope to see a cheap showdown.'
+      : 'Weak hand — check and reassess on the next card.' };
   }
 
   if (edge >= 20)
@@ -332,16 +424,34 @@ export function OddsPanel({ state }: Props) {
     const current = getBestHand(known);
     const knownSet = new Set(known.map(c => `${c.rank}${c.suit}`));
     const unseen = FULL_DECK.filter(c => !knownSet.has(`${c.rank}${c.suit}`));
-    const outs = cardsToRiver > 0
-      ? unseen.filter(card => isGenuineOut(myCards, community, card, current.rank)).length
-      : 0;
-    return { handName: current.description, outs };
+    let outs = 0, cleanOuts = 0;
+    if (cardsToRiver > 0) {
+      const maxBoardRank = Math.max(...community.map(c => RANK_VALUE[c.rank]));
+      for (const card of unseen) {
+        if (!isGenuineOut(myCards, community, card, current.rank)) continue;
+        outs++;
+        const improved = getBestHand([...known, card]);
+        // Clean = two pair or better, OR top pair (paired rank ≥ highest board card).
+        // Dirty = middle/bottom pair on a board with overcards — improves rank but
+        // almost never wins since any opponent with a higher card dominates.
+        if (
+          improved.rank >= HandRank.TWO_PAIR ||
+          (improved.rank === HandRank.PAIR && improved.tiebreaker[0] >= maxBoardRank)
+        ) cleanOuts++;
+      }
+    }
+    return { handName: current.description, outs, cleanOuts };
   }, [myCards.map(c=>`${c.rank}${c.suit}`).join(','), community.map(c=>`${c.rank}${c.suit}`).join(',')]);
 
   const distribution = useMemo(() => {
     if (community.length < 3) return null;
     return getHandDistribution(myCards, community);
   }, [myCards.map(c=>`${c.rank}${c.suit}`).join(','), community.map(c=>`${c.rank}${c.suit}`).join(',')]);
+
+  // Players still competing (not folded, not sitting out, not me)
+  const numOpponents = state.players.filter(
+    p => p.id !== state.myPlayerId && (p.status === 'active' || p.status === 'all-in'),
+  ).length;
 
   // On the flop, Rule of 4 only applies when facing an all-in (guaranteed to see both
   // remaining cards). With chips behind, use Rule of 2 for the immediate street only.
@@ -353,14 +463,31 @@ export function OddsPanel({ state }: Props) {
     : 'Rule of 2';
 
   const outs = postflopInfo?.outs ?? 0;
-  const equityPct = cardsToRiver > 0
-    ? Math.min(outs * equityMultiplier, 100)
-    : (preflopStrength?.equityVsRandom ?? 0);
+  const cleanOuts = postflopInfo?.cleanOuts ?? 0;
+
+  // Base equity (1v1) from preflop lookup or clean-outs formula.
+  // Dirty outs (middle/bottom pair with overcards on board) are excluded — they improve
+  // hand rank but rarely win, so counting them overstates equity.
+  const baseEquityPct = isPreflop
+    ? (preflopStrength?.equityVsRandom ?? 0)
+    : cardsToRiver > 0
+      ? Math.min(cleanOuts * equityMultiplier, 100)
+      : 0;
+
+  // Multiway adjustment:
+  //   Preflop: calibrated per-opponent decay (see multiwayPreflopEquity)
+  //   Postflop: 2/(N+1) scaling — gentler, suits drawing hands better than ^N
+  const adjustedEquityPct = numOpponents <= 1
+    ? baseEquityPct
+    : isPreflop
+      ? Math.round(multiwayPreflopEquity(baseEquityPct / 100, numOpponents) * 100)
+      : Math.round(baseEquityPct * (2 / (numOpponents + 1)));
+
   const handName = postflopInfo?.handName ?? null;
 
   const recommendation = getRecommendation(
-    equityPct, potOddsPct, callAmount, handName,
-    preflopStrength?.tier ?? null, cardsToRiver,
+    adjustedEquityPct, potOddsPct, callAmount, handName,
+    preflopStrength?.tier ?? null, preflopStrength?.impliedOddsProfile ?? null, cardsToRiver,
     currentPot, me.bet, state.bigBlindAmount, state.minRaise, me.chips, state.currentBet,
   );
 
@@ -379,7 +506,15 @@ export function OddsPanel({ state }: Props) {
             <span className="odds-label">Strength</span>
             <span className="odds-value" style={{ color: TIER_COLOR[preflopStrength.tier] }}>
               {preflopStrength.tier}
-              <span className="odds-muted"> (~{preflopStrength.equityVsRandom}% vs random hand)</span>
+            </span>
+          </div>
+          <div className="odds-row">
+            <span className="odds-label">Equity</span>
+            <span className="odds-value">
+              ~{pct(adjustedEquityPct)} vs {numOpponents} opponent{numOpponents !== 1 ? 's' : ''}
+              {numOpponents > 1 && (
+                <span className="odds-muted"> ({preflopStrength.equityVsRandom}% heads-up)</span>
+              )}
             </span>
           </div>
         </div>
@@ -396,13 +531,30 @@ export function OddsPanel({ state }: Props) {
             <>
               <div className="odds-row">
                 <span className="odds-label">Outs</span>
-                <span className="odds-value">{outs} cards improve your hand</span>
+                <span className="odds-value">
+                  {outs} total
+                  {outs > 0 && (
+                    <span className="odds-muted">
+                      {cleanOuts === outs
+                        ? ' (all clean)'
+                        : ` (${cleanOuts} clean, ${outs - cleanOuts} dirty)`}
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="odds-row">
                 <span className="odds-label">Equity est.</span>
                 <span className="odds-value">
-                  ~{pct(equityPct)}
-                  <span className="odds-muted"> ({outs} × {equityMultiplier} — {equityRuleLabel})</span>
+                  ~{pct(adjustedEquityPct)} vs {numOpponents} opponent{numOpponents !== 1 ? 's' : ''}
+                  {numOpponents > 1 && (
+                    <span className="odds-muted"> ({pct(baseEquityPct)} heads-up)</span>
+                  )}
+                </span>
+              </div>
+              <div className="odds-row">
+                <span className="odds-label" />
+                <span className="odds-muted" style={{ fontSize: '0.72rem' }}>
+                  {cleanOuts} clean × {equityMultiplier} — {equityRuleLabel}
                 </span>
               </div>
             </>

@@ -3,6 +3,7 @@ import { CardComponent } from './CardComponent';
 import { PlayerSeat } from './PlayerSeat';
 import { ActionPanel } from './ActionPanel';
 import { HandHistoryPanel, type CompletedHand } from './HandHistoryPanel';
+import { HandRankingsGuide } from './HandRankingsGuide';
 
 interface Props {
   state: GameState;
@@ -91,6 +92,9 @@ export function PokerTable({ state, handHistory }: Props) {
 
       {/* Hand history panel */}
       <HandHistoryPanel history={handHistory} />
+
+      {/* Hand rankings reference */}
+      <HandRankingsGuide />
     </div>
   );
 }

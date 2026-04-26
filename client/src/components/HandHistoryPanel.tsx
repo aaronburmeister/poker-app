@@ -20,6 +20,11 @@ const SUIT_COLOR: Record<string, string> = {
   hearts: 'var(--red)', diamonds: 'var(--red)', clubs: '#fff', spades: '#fff',
 };
 
+// How many community cards are visible at the start of each street
+const STREET_CARD_COUNT: Partial<Record<GamePhase, number>> = {
+  flop: 3, turn: 4, river: 5, showdown: 5,
+};
+
 function cardStr(card: Card): string {
   const rank = card.rank === 'T' ? '10' : card.rank;
   return `${rank}${SUIT_SYMBOL[card.suit]}`;
@@ -29,18 +34,24 @@ function fmtChips(n: number): string {
   return n.toLocaleString();
 }
 
+function streetLabel(street: GamePhase): string {
+  return street.charAt(0).toUpperCase() + street.slice(1);
+}
+
+function streetCardsText(street: GamePhase, communityCards: Card[]): string {
+  const count = STREET_CARD_COUNT[street];
+  if (!count) return '';
+  return ` [${communityCards.slice(0, count).map(cardStr).join(',')}]`;
+}
+
 function handToPlainText(hand: CompletedHand): string {
-  const lines: string[] = [`Hand #${hand.handNumber}`];
-  if (hand.communityCards.length > 0) {
-    lines.push(`Board: ${hand.communityCards.map(cardStr).join(' ')}`);
-  }
-  lines.push('');
+  const lines: string[] = [`Hand #${hand.handNumber}`, ''];
 
   let currentStreet: GamePhase | null = null;
   for (const entry of hand.log) {
     if (entry.street !== currentStreet) {
       currentStreet = entry.street;
-      lines.push(`${entry.street.charAt(0).toUpperCase() + entry.street.slice(1)}:`);
+      lines.push(`${streetLabel(entry.street)}${streetCardsText(entry.street, hand.communityCards)}`);
     }
     const amt = entry.amount !== undefined ? ` ${fmtChips(entry.amount)}` : '';
     lines.push(`  ${entry.playerName} ${entry.actionText}${amt}`);
@@ -48,7 +59,6 @@ function handToPlainText(hand: CompletedHand): string {
 
   if (hand.showdownHands && Object.keys(hand.showdownHands).length > 0) {
     lines.push('');
-    lines.push('Showdown:');
     for (const info of Object.values(hand.showdownHands)) {
       lines.push(`  ${info.playerName}: ${info.cards.map(cardStr).join(' ')} — ${info.handDescription}`);
     }
@@ -63,9 +73,25 @@ function handToPlainText(hand: CompletedHand): string {
   return lines.join('\n');
 }
 
-function StreetLabel({ street }: { street: GamePhase }) {
-  const label = street.charAt(0).toUpperCase() + street.slice(1);
-  return <div className="hh-street-label">{label}</div>;
+function StreetLabel({ street, communityCards }: { street: GamePhase; communityCards: Card[] }) {
+  const count = STREET_CARD_COUNT[street];
+  const cards = count ? communityCards.slice(0, count) : [];
+  return (
+    <div className="hh-street-label">
+      {streetLabel(street)}
+      {cards.length > 0 && (
+        <span className="hh-street-cards">
+          {' ['}
+          {cards.map((card, i) => (
+            <span key={i} style={{ color: SUIT_COLOR[card.suit] }}>
+              {cardStr(card)}{i < cards.length - 1 ? ',' : ''}
+            </span>
+          ))}
+          {']'}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function HandEntry({ hand }: { hand: CompletedHand }) {
@@ -101,23 +127,13 @@ function HandEntry({ hand }: { hand: CompletedHand }) {
 
       {expanded && (
         <div className="hh-hand-body">
-          {hand.communityCards.length > 0 && (
-            <div className="hh-board">
-              {hand.communityCards.map((card, i) => (
-                <span key={i} className="hh-card" style={{ color: SUIT_COLOR[card.suit] }}>
-                  {cardStr(card)}
-                </span>
-              ))}
-            </div>
-          )}
-
           {hand.log.map((entry, i) => {
             const showStreet = entry.street !== currentStreet;
             if (showStreet) currentStreet = entry.street;
             const amt = entry.amount !== undefined ? ` ${fmtChips(entry.amount)}` : '';
             return (
               <div key={i}>
-                {showStreet && <StreetLabel street={entry.street} />}
+                {showStreet && <StreetLabel street={entry.street} communityCards={hand.communityCards} />}
                 <div className="hh-log-entry">
                   <span className="hh-player-name">{entry.playerName}</span>
                   {' '}{entry.actionText}{amt}
@@ -128,7 +144,7 @@ function HandEntry({ hand }: { hand: CompletedHand }) {
 
           {hand.showdownHands && Object.keys(hand.showdownHands).length > 0 && (
             <div className="hh-result">
-              <div className="hh-street-label">Showdown</div>
+              <StreetLabel street="showdown" communityCards={hand.communityCards} />
               {Object.values(hand.showdownHands).map((info, i) => (
                 <div key={i} className="hh-log-entry">
                   <span className="hh-player-name">{info.playerName}</span>

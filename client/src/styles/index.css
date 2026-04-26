@@ -550,13 +550,6 @@ body {
   gap: 2px;
 }
 
-.hh-board {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
-}
-
 .hh-card {
   font-weight: 800;
   font-size: 0.85rem;
@@ -564,13 +557,17 @@ body {
 }
 
 .hh-street-label {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  text-transform: uppercase;
   color: var(--ui-muted);
-  letter-spacing: 0.08em;
-  margin-top: 6px;
+  letter-spacing: 0.04em;
+  margin-top: 8px;
   margin-bottom: 2px;
+}
+
+.hh-street-cards {
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .hh-log-entry {

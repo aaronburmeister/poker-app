@@ -491,6 +491,23 @@ export function OddsPanel({ state }: Props) {
     currentPot, me.bet, state.bigBlindAmount, state.minRaise, me.chips, state.currentBet,
   );
 
+  const phase = isPreflop ? 'preflop' : onRiver ? 'river' : cardsToRiver === 1 ? 'turn' : 'flop';
+  const handContext = isPreflop ? (preflopStrength?.label ?? '') : (handName ?? '');
+
+  const myIndex = state.players.findIndex(p => p.id === state.myPlayerId);
+  const n = state.players.length;
+  const relPos = (myIndex - state.dealerIndex + n) % n;
+  const position = relPos === 0 ? 'button'
+    : relPos === 1 ? 'small blind'
+    : relPos === 2 ? 'big blind'
+    : relPos === n - 1 && n > 3 ? 'late position'
+    : relPos <= Math.ceil(n / 3) ? 'early position'
+    : 'middle position';
+
+  const explainUrl = `https://www.google.com/search?q=${encodeURIComponent(
+    `poker strategy why ${recommendation.action.toLowerCase()} ${handContext} ${phase} ${position}`.trim()
+  )}`;
+
   return (
     <div className="odds-panel">
       <div className="odds-title">Odds Assistant</div>
@@ -585,7 +602,18 @@ export function OddsPanel({ state }: Props) {
         <span className="odds-action" style={{ color: ACTION_COLOR[recommendation.action] }}>
           {recommendation.action}
         </span>
-        <span className="odds-reason">{recommendation.reason}</span>
+        <span className="odds-reason">
+          {recommendation.reason}{' '}
+          <a
+            href={explainUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="odds-explain-link"
+            title="Opens a Google search in a new tab explaining this recommendation"
+          >
+            Why?
+          </a>
+        </span>
         {recommendation.raiseSuggestion && (
           <span className="odds-raise-suggestion">
             Suggested sizing: {fmtChips(recommendation.raiseSuggestion.min)}

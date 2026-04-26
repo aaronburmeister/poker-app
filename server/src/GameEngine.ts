@@ -1,6 +1,6 @@
 import type {
-  Card, GamePhase, GameState, PlayerAction,
-  PlayerState, PlayerStatus, PotInfo, RoomOptions, WinnerInfo,
+  Card, GamePhase, GameState, HandLogEntry, PlayerAction,
+  PlayerState, PlayerStatus, PotInfo, RoomOptions, ShowdownHandInfo, WinnerInfo,
 } from '@poker/shared';
 import { Deck } from './Deck';
 import { getBestHand, compareHands } from './HandEvaluator';
@@ -35,10 +35,15 @@ export class GameEngine {
   private handNumber: number;
   private winners: WinnerInfo[] | undefined;
   private lastAction: GameState['lastAction'];
+  private roundActions: Map<string, NonNullable<GameState['lastAction']>>;
+  private handLog: HandLogEntry[];
+  private showdownHands: Map<string, ShowdownHandInfo>;
 
   constructor(
     players: Pick<InternalPlayer, 'id' | 'name' | 'chips' | 'isBot' | 'seatIndex' | 'isConnected'>[],
     options: RoomOptions,
+    startingHandNumber = 0,
+    startingDealerPlayerId?: string,
   ) {
     this.players = players.map(p => ({
       ...p,
@@ -59,9 +64,16 @@ export class GameEngine {
     this.lastRaiseSize = options.bigBlind;
     this.smallBlindAmount = options.smallBlind;
     this.bigBlindAmount = options.bigBlind;
-    this.handNumber = 0;
+    this.handNumber = startingHandNumber;
+    if (startingDealerPlayerId) {
+      const idx = this.players.findIndex(p => p.id === startingDealerPlayerId);
+      if (idx >= 0) this.dealerIndex = idx;
+    }
     this.winners = undefined;
     this.lastAction = undefined;
+    this.roundActions = new Map();
+    this.handLog = [];
+    this.showdownHands = new Map();
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -72,6 +84,9 @@ export class GameEngine {
     this.communityCards = [];
     this.winners = undefined;
     this.lastAction = undefined;
+    this.roundActions = new Map();
+    this.handLog = [];
+    this.showdownHands = new Map();
 
     this.players.forEach(p => {
       p.holeCards = [];
@@ -96,6 +111,13 @@ export class GameEngine {
 
     this.postBlind(this.smallBlindIndex, this.smallBlindAmount);
     this.postBlind(this.bigBlindIndex, this.bigBlindAmount);
+
+    const dealer = this.players[this.dealerIndex];
+    const sb = this.players[this.smallBlindIndex];
+    const bb = this.players[this.bigBlindIndex];
+    this.handLog.push({ street: 'preflop', playerName: dealer.name, actionText: 'is the Dealer' });
+    this.handLog.push({ street: 'preflop', playerName: sb.name, actionText: 'posts small blind', amount: this.smallBlindAmount });
+    this.handLog.push({ street: 'preflop', playerName: bb.name, actionText: 'posts big blind', amount: this.bigBlindAmount });
 
     this.currentBet = this.bigBlindAmount;
     this.lastRaiseSize = this.bigBlindAmount;
@@ -142,7 +164,6 @@ export class GameEngine {
   }
 
   getStateForPlayer(viewerId: string): GameState {
-    const myIdx = this.players.findIndex(p => p.id === viewerId);
     return {
       roomCode: '',
       phase: this.phase,
@@ -161,6 +182,9 @@ export class GameEngine {
       winners: this.winners,
       handNumber: this.handNumber,
       lastAction: this.lastAction,
+      roundActions: Object.fromEntries(this.roundActions),
+      handLog: this.handLog,
+      showdownHands: Object.fromEntries(this.showdownHands),
     };
   }
 
@@ -234,6 +258,10 @@ export class GameEngine {
         break;
       }
     }
+    if (this.lastAction) {
+      this.roundActions.set(player.id, this.lastAction);
+      this.handLog.push({ street: this.phase, playerName: player.name, actionText: this.lastAction.actionText, amount: this.lastAction.amount });
+    }
   }
 
   private applyChips(player: InternalPlayer, amount: number): void {
@@ -258,6 +286,7 @@ export class GameEngine {
     this.players.forEach(p => { p.bet = 0; });
     this.currentBet = 0;
     this.lastRaiseSize = this.bigBlindAmount;
+    this.roundActions = new Map();
 
     if (this.phase === 'river') {
       this.runShowdown();
@@ -339,6 +368,15 @@ export class GameEngine {
       });
     }
 
+    if (this.communityCards.length === 5) {
+      this.players
+        .filter(p => p.status !== 'folded' && p.status !== 'sitting-out' && p.holeCards.length >= 2)
+        .forEach(p => {
+          const hand = getBestHand([...p.holeCards, ...this.communityCards]);
+          this.showdownHands.set(p.id, { playerName: p.name, cards: p.holeCards, handDescription: hand.description });
+        });
+    }
+
     return results;
   }
 
@@ -366,9 +404,10 @@ export class GameEngine {
       if (potAmount > 0) {
         if (eligible.length > 0) {
           const existing = pots[pots.length - 1];
-          // Merge single-eligible pots into previous if only one person can win
-          if (eligible.length === 1 && existing && existing.eligiblePlayerIds.length === 1
-            && existing.eligiblePlayerIds[0] === eligible[0]) {
+          const sameEligible = existing &&
+            existing.eligiblePlayerIds.length === eligible.length &&
+            eligible.every(id => existing.eligiblePlayerIds.includes(id));
+          if (sameEligible) {
             existing.amount += potAmount;
           } else {
             pots.push({ amount: potAmount, eligiblePlayerIds: eligible });

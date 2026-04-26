@@ -27,6 +27,8 @@ export class GameRoom {
   private engine: GameEngine | null;
   private bot: BotPlayer;
   private nextHandTimer: ReturnType<typeof setTimeout> | null;
+  private handNumber: number;
+  private dealerPlayerId: string | null;
 
   constructor(roomCode: string, hostSocketId: string, hostName: string, options: RoomOptions) {
     this.roomCode = roomCode;
@@ -34,6 +36,8 @@ export class GameRoom {
     this.bot = new BotPlayer();
     this.engine = null;
     this.nextHandTimer = null;
+    this.handNumber = 0;
+    this.dealerPlayerId = null;
 
     const hostId = generateId();
     this.hostId = hostId;
@@ -161,6 +165,8 @@ export class GameRoom {
         isConnected: p.socketId !== null || p.isBot,
       })),
       this.options,
+      this.handNumber,
+      this.dealerPlayerId ?? undefined,
     );
     this.engine.startHand();
   }
@@ -172,6 +178,8 @@ export class GameRoom {
       // Sync chips from engine back to room players after hand resolves
       if (this.engine) {
         const finalState = this.engine.getStateForPlayer(this.players[0].id);
+        this.handNumber = finalState.handNumber;
+        this.dealerPlayerId = finalState.players[finalState.dealerIndex]?.id ?? null;
         finalState.players.forEach(ps => {
           const rp = this.players.find(p => p.id === ps.id);
           if (rp) rp.chips = ps.chips;
@@ -217,6 +225,9 @@ export class GameRoom {
       myPlayerId: viewerId,
       isMyTurn: false,
       handNumber: 0,
+      roundActions: {},
+      handLog: [],
+      showdownHands: {},
     };
   }
 }

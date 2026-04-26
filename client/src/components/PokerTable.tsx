@@ -2,9 +2,11 @@ import type { GameState, PlayerState } from '@poker/shared';
 import { CardComponent } from './CardComponent';
 import { PlayerSeat } from './PlayerSeat';
 import { ActionPanel } from './ActionPanel';
+import { HandHistoryPanel, type CompletedHand } from './HandHistoryPanel';
 
 interface Props {
   state: GameState;
+  handHistory: CompletedHand[];
 }
 
 function fmtChips(n: number): string {
@@ -33,13 +35,9 @@ function seatPositions(players: PlayerState[], myId: string): { x: number; y: nu
   });
 }
 
-export function PokerTable({ state }: Props) {
+export function PokerTable({ state, handHistory }: Props) {
   const positions = seatPositions(state.players, state.myPlayerId);
   const pot = totalPot(state);
-
-  const lastActionPlayer = state.lastAction
-    ? state.players.find(p => p.id === state.lastAction?.playerId)
-    : null;
 
   return (
     <div className="table-container">
@@ -53,13 +51,6 @@ export function PokerTable({ state }: Props) {
             ))}
           </div>
           {pot > 0 && <div className="pot-display">Pot: {fmtChips(pot)}</div>}
-          {state.phase !== 'showdown' && state.lastAction && lastActionPlayer && (
-            <div className="last-action">
-              {lastActionPlayer.name}{' '}
-              {state.lastAction.actionText}
-              {state.lastAction.amount !== undefined ? ` ${fmtChips(state.lastAction.amount)}` : ''}
-            </div>
-          )}
           {state.phase === 'showdown' && state.winners && (
             <div className="winners-display">
               {state.winners.map((w, i) => (
@@ -83,6 +74,7 @@ export function PokerTable({ state }: Props) {
               player={player}
               isCurrentTurn={i === state.currentPlayerIndex && state.phase !== 'showdown' && state.phase !== 'waiting'}
               isSelf={player.id === state.myPlayerId}
+              lastAction={state.roundActions[player.id]}
             />
           </div>
         ))}
@@ -96,6 +88,9 @@ export function PokerTable({ state }: Props) {
         {state.phase.charAt(0).toUpperCase() + state.phase.slice(1)}
         {' · '}Hand #{state.handNumber}
       </div>
+
+      {/* Hand history panel */}
+      <HandHistoryPanel history={handHistory} />
     </div>
   );
 }

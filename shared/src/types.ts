@@ -47,6 +47,19 @@ export interface LastAction {
   amount?: number;
 }
 
+export interface HandLogEntry {
+  street: GamePhase;
+  playerName: string;
+  actionText: string;
+  amount?: number;
+}
+
+export interface ShowdownHandInfo {
+  playerName: string;
+  cards: Card[];
+  handDescription: string;
+}
+
 export interface GameState {
   roomCode: string;
   phase: GamePhase;
@@ -67,6 +80,12 @@ export interface GameState {
   winners?: WinnerInfo[];
   handNumber: number;
   lastAction?: LastAction;
+  /** Actions taken by each player this betting round — cleared when the street advances */
+  roundActions: Record<string, LastAction>;
+  /** Full action log for the current hand — use at showdown to save history */
+  handLog: HandLogEntry[];
+  /** Evaluated hands for non-folded players at showdown; keyed by playerId */
+  showdownHands?: Record<string, ShowdownHandInfo>;
 }
 
 export interface RoomOptions {

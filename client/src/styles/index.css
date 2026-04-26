@@ -217,8 +217,8 @@ body {
 
 .felt-table {
   position: relative;
-  width: min(820px, 96vw);
-  aspect-ratio: 2 / 1;
+  width: min(1060px, 96vw);
+  aspect-ratio: 5 / 2.8;
   background: var(--felt);
   border-radius: 50%;
   border: 10px solid var(--felt-rim);
@@ -337,6 +337,13 @@ body {
   text-transform: uppercase;
 }
 
+.player-action-label {
+  font-size: 0.65rem;
+  color: #86efac;
+  font-weight: 700;
+}
+
+
 .player-bet {
   position: absolute;
   bottom: -22px;
@@ -371,8 +378,8 @@ body {
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 .card {
-  width: 52px;
-  height: 74px;
+  width: 62px;
+  height: 88px;
   border-radius: 6px;
   border: 1.5px solid rgba(0,0,0,0.2);
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
@@ -382,9 +389,9 @@ body {
 }
 
 .card-small {
-  width: 30px;
-  height: 43px;
-  border-radius: 4px;
+  width: 58px;
+  height: 83px;
+  border-radius: 5px;
 }
 
 .card-back {
@@ -409,20 +416,20 @@ body {
 
 .card-corner {
   position: absolute;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1.1;
   text-align: center;
 }
-.card-small .card-corner { font-size: 0.45rem; }
+.card-small .card-corner { font-size: 0.75rem; }
 
-.card-tl { top: 3px; left: 4px; }
-.card-br { bottom: 3px; right: 4px; transform: rotate(180deg); }
+.card-tl { top: 4px; left: 5px; }
+.card-br { bottom: 4px; right: 5px; transform: rotate(180deg); }
 
 .card-center {
-  font-size: 1.5rem;
+  font-size: 1.8rem;
 }
-.card-small .card-center { font-size: 0.9rem; }
+.card-small .card-center { font-size: 1.6rem; }
 
 /* ── Action panel ────────────────────────────────────────────────────────── */
 .action-panel {
@@ -458,3 +465,129 @@ body {
   padding: 4px 14px;
   border-radius: 20px;
 }
+
+/* ── Hand history panel ───────────────────────────────────────────────────── */
+.hh-panel {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  max-width: 360px;
+  width: 360px;
+}
+
+.hh-toggle {
+  background: rgba(0,0,0,0.7);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  color: var(--ui-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hh-toggle:hover { background: rgba(255,255,255,0.08); }
+
+.hh-list {
+  width: 100%;
+  background: rgba(10,10,20,0.92);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  margin-top: 6px;
+  max-height: 55vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.hh-empty {
+  padding: 16px;
+  color: var(--ui-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.hh-hand {
+  border-bottom: 1px solid #1f2937;
+}
+.hh-hand:last-child { border-bottom: none; }
+
+.hh-hand-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.hh-hand-header:hover { background: rgba(255,255,255,0.04); }
+
+.hh-chevron { font-size: 0.7rem; color: var(--ui-muted); flex-shrink: 0; }
+.hh-hand-title { font-size: 0.8rem; font-weight: 700; color: var(--chip-gold); flex-shrink: 0; }
+.hh-winner-summary { font-size: 0.75rem; color: var(--ui-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.hh-copy-btn {
+  background: #1e3a5f;
+  color: #93c5fd;
+  border: none;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.hh-copy-btn:hover { background: #2563eb; color: #fff; }
+
+.hh-hand-body {
+  padding: 4px 16px 12px 28px;
+  font-size: 0.78rem;
+  color: var(--ui-text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hh-board {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.hh-card {
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+.hh-street-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ui-muted);
+  letter-spacing: 0.08em;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.hh-log-entry {
+  color: #cbd5e1;
+  padding-left: 4px;
+}
+
+.hh-player-name { font-weight: 700; color: #fff; }
+
+.hh-result {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hh-winner-line { color: var(--chip-gold); font-weight: 600; }
+.hh-hand-desc { color: var(--ui-muted); font-weight: 400; }

@@ -16,6 +16,20 @@ const RANK_CHAR: Record<number, string> = {
   14:'A',13:'K',12:'Q',11:'J',10:'T',9:'9',8:'8',7:'7',6:'6',5:'5',4:'4',3:'3',2:'2',
 };
 
+// Approximate HU equity for made hands vs one random opponent.
+// Tuple index: 0 = flop (2 cards to come), 1 = turn (1 card to come), 2 = river (final).
+// Drawing hands (pair, high card) use the outs formula instead.
+const MADE_HAND_BASE_EQUITY: Partial<Record<HandRank, [number, number, number]>> = {
+  [HandRank.STRAIGHT_FLUSH]: [99, 99, 99],
+  [HandRank.FOUR_OF_A_KIND]: [98, 98, 98],
+  [HandRank.FULL_HOUSE]:     [94, 96, 96],
+  [HandRank.FLUSH]:          [82, 86, 85],
+  [HandRank.STRAIGHT]:       [79, 83, 82],
+  [HandRank.THREE_OF_A_KIND]:[73, 74, 73],
+  [HandRank.TWO_PAIR]:       [62, 65, 64],
+};
+const TOP_PAIR_BASE_EQUITY: [number, number, number] = [68, 70, 69];
+
 // ── Preflop HU equity lookup ──────────────────────────────────────────────────
 // Heads-up equity vs one random opponent for all 169 canonical starting hands.
 // Values sourced from simulation data (±1% for premium hands, ±3% for weak hands).
@@ -275,6 +289,7 @@ function calcRaiseSuggestion(
   isPreflop: boolean,
   currentBet: number,
   equityPct: number,
+  isMadeHand: boolean,
 ): RaiseSuggestion {
   const cap = (n: number) => Math.min(Math.round(n), myBet + myChips);
 
@@ -297,10 +312,11 @@ function calcRaiseSuggestion(
     const halfPot  = cap(currentPot * 0.5);
     const twoThird = cap(currentPot * 0.67);
     const fullPot  = cap(currentPot);
-    if (equityPct >= 65) {
-      return { min: twoThird, max: fullPot,  label: '2/3 to full pot (value bet)' };
+    // Made hands always bet for value; drawing hands use value sizing only when very strong.
+    if (isMadeHand || equityPct >= 65) {
+      return { min: twoThird, max: fullPot, label: '2/3 to full pot (value bet)' };
     }
-    return               { min: halfPot,  max: twoThird, label: '1/2 to 2/3 pot (semi-bluff sizing)' };
+    return { min: halfPot, max: twoThird, label: '1/2 to 2/3 pot (semi-bluff sizing)' };
   }
 
   // Raising a bet: from minRaise floor up to pot-sized
@@ -322,6 +338,8 @@ function getRecommendation(
   minRaise: number,
   myChips: number,
   currentBet: number,
+  numOpponents: number,
+  isMadeHand: boolean,
 ): Recommendation {
   const facingBet = callAmount > 0;
   const edge = equityPct - potOddsPct;
@@ -332,7 +350,7 @@ function getRecommendation(
       action,
       reason,
       raiseSuggestion: calcRaiseSuggestion(
-        currentPot, callAmount, myBet, bigBlind, minRaise, myChips, isPreflop, currentBet, equityPct,
+        currentPot, callAmount, myBet, bigBlind, minRaise, myChips, isPreflop, currentBet, equityPct, isMadeHand,
       ),
     };
   }
@@ -362,9 +380,14 @@ function getRecommendation(
   }
 
   if (!facingBet) {
-    if (equityPct >= 65)
+    // Dynamic BET threshold: your equity must exceed your fair share by 20%.
+    // In a 4-way pot fair share = 25%, so threshold = 30% — a set at 52% correctly BETs.
+    // Heads-up fair share = 50%, threshold = 60% — avoids frivolous bets with marginal hands.
+    const fairSharePct = 100 / (numOpponents + 1);
+    const betThreshold = fairSharePct * 1.2;
+    if (equityPct >= betThreshold)
       return withRaise('BET', 'Strong hand — bet to build the pot and charge draws.');
-    if (equityPct >= 40)
+    if (equityPct >= fairSharePct)
       return { action: 'CHECK', reason: 'Moderate hand — check to control the pot size.' };
     return { action: 'CHECK', reason: cardsToRiver === 0
       ? 'Weak hand — check and hope to see a cheap showdown.'
@@ -424,9 +447,9 @@ export function OddsPanel({ state }: Props) {
     const current = getBestHand(known);
     const knownSet = new Set(known.map(c => `${c.rank}${c.suit}`));
     const unseen = FULL_DECK.filter(c => !knownSet.has(`${c.rank}${c.suit}`));
+    const maxBoardRank = Math.max(...community.map(c => RANK_VALUE[c.rank]));
     let outs = 0, cleanOuts = 0;
     if (cardsToRiver > 0) {
-      const maxBoardRank = Math.max(...community.map(c => RANK_VALUE[c.rank]));
       for (const card of unseen) {
         if (!isGenuineOut(myCards, community, card, current.rank)) continue;
         outs++;
@@ -440,7 +463,8 @@ export function OddsPanel({ state }: Props) {
         ) cleanOuts++;
       }
     }
-    return { handName: current.description, outs, cleanOuts };
+    const isTopPair = current.rank === HandRank.PAIR && current.tiebreaker[0] >= maxBoardRank;
+    return { handName: current.description, outs, cleanOuts, currentRank: current.rank, isTopPair };
   }, [myCards.map(c=>`${c.rank}${c.suit}`).join(','), community.map(c=>`${c.rank}${c.suit}`).join(',')]);
 
   const distribution = useMemo(() => {
@@ -464,22 +488,38 @@ export function OddsPanel({ state }: Props) {
 
   const outs = postflopInfo?.outs ?? 0;
   const cleanOuts = postflopInfo?.cleanOuts ?? 0;
+  const currentHandRank = postflopInfo?.currentRank ?? null;
+  const isTopPair = postflopInfo?.isTopPair ?? false;
 
-  // Base equity (1v1) from preflop lookup or clean-outs formula.
-  // Dirty outs (middle/bottom pair with overcards on board) are excluded — they improve
-  // hand rank but rarely win, so counting them overstates equity.
+  // Made hands (two pair or better, or top pair) already have strong absolute equity;
+  // counting outs to improve only measures upside, not the hand's current win probability.
+  const isMadeHand = !isPreflop && currentHandRank != null && (
+    currentHandRank >= HandRank.TWO_PAIR || isTopPair
+  );
+
+  // 0 = flop (2 cards to come), 1 = turn, 2 = river
+  const streetIdx = cardsToRiver === 2 ? 0 : cardsToRiver === 1 ? 1 : 2;
+
+  // Base equity (1v1):
+  //   Preflop  → 169-hand lookup table
+  //   Made hand → absolute hand-rank estimate (independent of outs)
+  //   Draw     → clean outs × Rule-of-2/4 multiplier
   const baseEquityPct = isPreflop
     ? (preflopStrength?.equityVsRandom ?? 0)
-    : cardsToRiver > 0
-      ? Math.min(cleanOuts * equityMultiplier, 100)
-      : 0;
+    : isMadeHand
+      ? (currentHandRank! >= HandRank.TWO_PAIR
+          ? (MADE_HAND_BASE_EQUITY[currentHandRank!]?.[streetIdx] ?? 62)
+          : TOP_PAIR_BASE_EQUITY[streetIdx])
+      : cardsToRiver > 0
+        ? Math.min(cleanOuts * equityMultiplier, 100)
+        : 0;
 
   // Multiway adjustment:
-  //   Preflop: calibrated per-opponent decay (see multiwayPreflopEquity)
-  //   Postflop: 2/(N+1) scaling — gentler, suits drawing hands better than ^N
+  //   Preflop + made hands: calibrated per-opponent decay (hand correlation matters)
+  //   Drawing hands: 2/(N+1) scaling suits outs-based probability
   const adjustedEquityPct = numOpponents <= 1
     ? baseEquityPct
-    : isPreflop
+    : isPreflop || isMadeHand
       ? Math.round(multiwayPreflopEquity(baseEquityPct / 100, numOpponents) * 100)
       : Math.round(baseEquityPct * (2 / (numOpponents + 1)));
 
@@ -489,6 +529,7 @@ export function OddsPanel({ state }: Props) {
     adjustedEquityPct, potOddsPct, callAmount, handName,
     preflopStrength?.tier ?? null, preflopStrength?.impliedOddsProfile ?? null, cardsToRiver,
     currentPot, me.bet, state.bigBlindAmount, state.minRaise, me.chips, state.currentBet,
+    numOpponents, isMadeHand,
   );
 
   const phase = isPreflop ? 'preflop' : onRiver ? 'river' : cardsToRiver === 1 ? 'turn' : 'flop';
@@ -571,7 +612,9 @@ export function OddsPanel({ state }: Props) {
               <div className="odds-row">
                 <span className="odds-label" />
                 <span className="odds-muted" style={{ fontSize: '0.72rem' }}>
-                  {cleanOuts} clean × {equityMultiplier} — {equityRuleLabel}
+                  {isMadeHand
+                    ? 'Made hand — absolute strength estimate'
+                    : `${cleanOuts} clean × ${equityMultiplier} — ${equityRuleLabel}`}
                 </span>
               </div>
             </>

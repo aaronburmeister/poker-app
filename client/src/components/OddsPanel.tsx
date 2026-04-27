@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Card, GameState, Rank, Suit } from '@poker/shared';
-import { getBestHand, HandRank } from '@poker/shared';
+import { getBestHand, compareHands, HandRank } from '@poker/shared';
 
 // ── Deck ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +86,51 @@ const PREFLOP_HU_EQUITY: Record<string, number> = {
   '32s':42,'32o':38,
 };
 
+// ── Preflop range-equity adjustment ──────────────────────────────────────────
+// As bet level rises the opponent's range tightens. Medium hands lose equity
+// disproportionately (dominated kickers, coin-flips with premium pairs).
+// betLevel 0 = blinds / no raise | 1 = open raise | 2 = 3-bet | 3 = 4-bet | 4 = 5-bet+
+
+const RANGE_EQUITY_FACTOR: Record<'Premium' | 'Strong' | 'Playable' | 'Speculative' | 'Weak',
+  readonly [number, number, number, number, number]> = {
+  //          [  0,     1,    2-3bet, 3-4bet, 4-5bet+]
+  Premium:    [1.00,  1.00,   0.82,   0.68,   0.56],
+  Strong:     [1.00,  0.97,   0.72,   0.57,   0.44],
+  Playable:   [1.00,  0.95,   0.62,   0.48,   0.35],
+  Speculative:[1.00,  0.90,   0.53,   0.39,   0.27],
+  Weak:       [1.00,  0.85,   0.45,   0.31,   0.20],
+};
+
+// Per-hand overrides for top pairs, which diverge heavily from their tier average.
+// AA gains equity vs tighter ranges; KK/QQ face AA/KK more frequently.
+const PAIR_RANGE_FACTOR: Record<number, readonly [number, number, number, number, number]> = {
+  14: [1.00, 1.00, 1.05, 1.10, 1.15],  // AA — benefits from tight ranges
+  13: [1.00, 1.00, 0.93, 0.85, 0.72],  // KK — solid until 5-bet (faces AA)
+  12: [1.00, 1.00, 0.81, 0.63, 0.50],  // QQ — faces AA/KK significantly at 4-bet+
+};
+
+function calcRangeEquity(
+  tier: 'Premium' | 'Strong' | 'Playable' | 'Speculative' | 'Weak',
+  equityVsRandom: number,
+  betLevel: number,
+  isPair: boolean,
+  pairRank: number,
+): number {
+  if (betLevel <= 1) return equityVsRandom;
+  const pairFactors = isPair ? PAIR_RANGE_FACTOR[pairRank] : undefined;
+  const factor = pairFactors
+    ? (pairFactors[betLevel] ?? 1.0)
+    : (RANGE_EQUITY_FACTOR[tier][betLevel] ?? 1.0);
+  return Math.min(Math.round(equityVsRandom * factor), 99);
+}
+
+// Range label shown in the panel when facing raised aggression
+const BET_LEVEL_LABEL: Record<number, string> = {
+  2: 'vs 3-bet range (TT+/AK/AJs+)',
+  3: 'vs 4-bet range (QQ+/AK)',
+  4: 'vs 5-bet range (KK+)',
+};
+
 // ── Preflop strength ─────────────────────────────────────────────────────────
 
 type PreflopTier = 'Premium' | 'Strong' | 'Playable' | 'Speculative' | 'Weak';
@@ -103,10 +148,17 @@ interface PreflopStrength {
   label: string;
   equityVsRandom: number;
   impliedOddsProfile: ImpliedOddsProfile;
+  isPair: boolean;
+  pairRank: number;   // numeric rank of the pair (0 if not a pair)
+  hiCard: number;     // numeric rank of the higher hole card
+  loCard: number;     // numeric rank of the lower hole card
 }
 
 function getPreflopStrength(cards: Card[]): PreflopStrength {
-  if (cards.length < 2) return { tier: 'Weak', label: '—', equityVsRandom: 0, impliedOddsProfile: 'neutral' };
+  if (cards.length < 2) return {
+    tier: 'Weak', label: '—', equityVsRandom: 0, impliedOddsProfile: 'neutral',
+    isPair: false, pairRank: 0, hiCard: 0, loCard: 0,
+  };
   const [a, b] = cards;
   const v1 = RANK_VALUE[a.rank], v2 = RANK_VALUE[b.rank];
   const hi = Math.max(v1, v2), lo = Math.min(v1, v2);
@@ -151,7 +203,7 @@ function getPreflopStrength(cards: Card[]): PreflopStrength {
     impliedOddsProfile = 'neutral';
   }
 
-  return { tier, label, equityVsRandom, impliedOddsProfile };
+  return { tier, label, equityVsRandom, impliedOddsProfile, isPair, pairRank: isPair ? hi : 0, hiCard: hi, loCard: lo };
 }
 
 const TIER_COLOR: Record<PreflopTier, string> = {
@@ -340,6 +392,11 @@ function getRecommendation(
   currentBet: number,
   numOpponents: number,
   isMadeHand: boolean,
+  betLevel: number,
+  isDeepStack: boolean,
+  isPair: boolean,
+  pairRank: number,
+  hiCard: number,
 ): Recommendation {
   const facingBet = callAmount > 0;
   const edge = equityPct - potOddsPct;
@@ -363,6 +420,54 @@ function getRecommendation(
         return { action: 'CHECK', reason: 'Decent hand but not strong enough to build the pot preflop.' };
       return { action: 'CHECK', reason: 'Weak hand — see the flop cheaply if possible.' };
     }
+
+    // ── Action-context logic for 3-bet / 4-bet / 5-bet+ ─────────────────────
+    // At each level the opponent's range narrows dramatically; most hands that
+    // were profitable calling an open raise become losing calls here.
+    if (facingBet && betLevel >= 2) {
+
+      // 5-bet+: opponent range ≈ top 1% (essentially KK/AA).
+      if (betLevel >= 4) {
+        if (isPair && pairRank >= 13)  // AA or KK — only hands that flip or dominate KK+
+          return withRaise('RAISE', 'AA/KK — re-raise all-in. Opponent range at 5-bet is KK+ and your hand is never a big underdog.');
+        if (isPair && pairRank === 12 && !isDeepStack)
+          return { action: 'CALL', reason: 'QQ vs 5-bet: just over 40% equity vs a KK+ range. Calling is the best option at shorter stack depths.' };
+        return { action: 'FOLD', reason: 'Facing a 5-bet: opponent range is essentially KK/AA. Only KK or AA can continue profitably — fold everything else.' };
+      }
+
+      // 4-bet: opponent range ≈ top 3% (QQ+/AK).
+      if (betLevel === 3) {
+        if (isPair && pairRank >= 13)  // AA or KK
+          return withRaise('RAISE', 'AA/KK — 5-bet all-in for full value against the 4-bet range (QQ+/AK).');
+        if (isPair && pairRank === 12)  // QQ
+          return { action: 'CALL', reason: isDeepStack
+            ? 'QQ vs 4-bet: ~50% equity justifies calling. At 100+ BBs effective, shoving risks too much on a near coin-flip.'
+            : 'QQ has ~50% equity vs the 4-bet range (QQ+/AK) — calling is correct.' };
+        if (preflopTier === 'Premium' && !isPair && hiCard === 14)  // AKs, AKo
+          return { action: 'CALL', reason: 'AK vs 4-bet: ~45% equity — calling is correct. Re-raising risks too much vs a range that dominates or flips with AK.' };
+        if (preflopTier === 'Strong' && !isDeepStack)  // JJ, TT at short stack
+          return { action: 'CALL', reason: 'JJ/TT has marginal equity vs the 4-bet range. Call only at short stack depths (<40 BBs effective).' };
+        return { action: 'FOLD', reason: 'Facing a 4-bet: opponent range is QQ+/AK. Hand equity is too low to continue profitably — fold.' };
+      }
+
+      // 3-bet: opponent range ≈ top 8% (TT+/AK/AJs+/KQs).
+      if (isPair && pairRank >= 13)  // AA or KK
+        return withRaise('RAISE', 'AA/KK — 4-bet for maximum value. You dominate or flip against the entire 3-bet range.');
+      if (isPair && pairRank === 12)  // QQ
+        return withRaise('RAISE', 'QQ — strong 4-bet candidate. Ahead of most of the 3-bet range (TT/JJ/AQ/KQ) and a flip with AK.');
+      if (preflopTier === 'Premium' && !isPair && hiCard === 14 && pairRank === 0) {
+        // Non-pair Ace-high Premiums: AK 4-bets; AQ/AJ call (dominated by AK in 3-bet range)
+        const isAK = equityPct >= 53;  // range-adjusted AK stays higher than AQ/AJ
+        return isAK
+          ? withRaise('RAISE', 'AK — 4-betting is standard. A flip or slight favourite vs the entire 3-bet range.')
+          : { action: 'CALL', reason: 'AQ/AJ — call the 3-bet. 4-betting inflates the pot into a range that includes AK, which dominates your kicker.' };
+      }
+      if (preflopTier === 'Strong')  // JJ, TT
+        return { action: 'CALL', reason: `Strong hand (JJ/TT) — call the 3-bet and re-evaluate post-flop. 4-betting risks too much vs a range that includes AA/KK/QQ/AK.` };
+      return { action: 'FOLD', reason: 'Facing a 3-bet: opponent range (TT+/AK/AJs+/KQs) has your hand dominated or at best a coin-flip. Fold and wait for a better spot.' };
+    }
+
+    // ── betLevel 0-1: open raise or no raise ────────────────────────────────
     if (preflopTier === 'Premium')
       return withRaise('RAISE', 'Premium hand — maximize value before the flop.');
     if (preflopTier === 'Strong')
@@ -376,7 +481,7 @@ function getRecommendation(
         return { action: 'FOLD', reason: `Equity (~${Math.round(equityPct)}%) doesn't cover the ${Math.round(potOddsPct)}% needed — kicker-dominated hands lose big pots post-flop.` };
       return { action: 'CALL', reason: 'Decent hand — calling is reasonable, but be cautious against large raises.' };
     }
-    return { action: 'FOLD', reason: 'Weak hand — not worth calling without pot odds.' };
+    return { action: 'FOLD', reason: 'Weak hand — poor post-flop playability and reverse implied odds make this unprofitable even when pot odds appear close.' };
   }
 
   if (!facingBet) {
@@ -386,7 +491,9 @@ function getRecommendation(
     const fairSharePct = 100 / (numOpponents + 1);
     const betThreshold = fairSharePct * 1.2;
     if (equityPct >= betThreshold)
-      return withRaise('BET', 'Strong hand — bet to build the pot and charge draws.');
+      return withRaise('BET', cardsToRiver === 0
+        ? 'Strong hand — bet for value.'
+        : 'Strong hand — bet to build the pot and charge draws.');
     if (equityPct >= fairSharePct)
       return { action: 'CHECK', reason: 'Moderate hand — check to control the pot size.' };
     return { action: 'CHECK', reason: cardsToRiver === 0
@@ -395,7 +502,9 @@ function getRecommendation(
   }
 
   if (edge >= 20)
-    return withRaise('RAISE', `Your equity (${Math.round(equityPct)}%) strongly exceeds pot odds — raise to charge drawing hands.`);
+    return withRaise('RAISE', cardsToRiver === 0
+      ? `Your equity (${Math.round(equityPct)}%) strongly exceeds pot odds — raise for maximum value.`
+      : `Your equity (${Math.round(equityPct)}%) strongly exceeds pot odds — raise to charge drawing hands.`);
   if (edge >= -5)
     return { action: 'CALL', reason: `Your equity (${Math.round(equityPct)}%) is close to or above pot odds (${Math.round(potOddsPct)}%) — calling is reasonable.` };
   return { action: 'FOLD', reason: `Your equity (${Math.round(equityPct)}%) is well below pot odds (${Math.round(potOddsPct)}%) — folding is the most profitable play.` };
@@ -441,6 +550,24 @@ export function OddsPanel({ state }: Props) {
 
   const preflopStrength = isPreflop ? getPreflopStrength(myCards) : null;
 
+  // Detect how many times the bet has been raised relative to the big blind.
+  // 0 = posted blinds/limp, 1 = open raise, 2 = 3-bet, 3 = 4-bet, 4 = 5-bet+
+  const betLevelRatio = state.currentBet / state.bigBlindAmount;
+  const betLevel = betLevelRatio <= 1.5 ? 0 : betLevelRatio < 8 ? 1 : betLevelRatio < 22 ? 2 : betLevelRatio < 55 ? 3 : 4;
+
+  // Total chips committed + behind, expressed in big blinds
+  const effectiveStackBBs = Math.round((me.chips + me.bet) / state.bigBlindAmount);
+  const isDeepStack = effectiveStackBBs > 100;
+
+  // Equity adjusted for the tighter opponent range implied by the current bet level.
+  // At betLevel 0-1 this equals the raw heads-up equity from the lookup table.
+  const rangeEquityPct = preflopStrength
+    ? calcRangeEquity(
+        preflopStrength.tier, preflopStrength.equityVsRandom,
+        betLevel, preflopStrength.isPair, preflopStrength.pairRank,
+      )
+    : 0;
+
   const postflopInfo = useMemo(() => {
     if (community.length < 3) return null;
     const known = [...myCards, ...community];
@@ -448,6 +575,21 @@ export function OddsPanel({ state }: Props) {
     const knownSet = new Set(known.map(c => `${c.rank}${c.suit}`));
     const unseen = FULL_DECK.filter(c => !knownSet.has(`${c.rank}${c.suit}`));
     const maxBoardRank = Math.max(...community.map(c => RANK_VALUE[c.rank]));
+
+    // Determine whether the player's hole cards actively form the primary rank of the hand
+    // (not just acting as kickers). Required for accurate made-hand vs drawing-hand routing:
+    //   PAIR / THREE_OF_A_KIND / FULL_HOUSE (trips part) / FOUR_OF_A_KIND → check tiebreaker[0]
+    //   TWO_PAIR / FULL_HOUSE (pair part considered too) → check EITHER rank in tiebreaker
+    //   STRAIGHT+ on flop/turn always require hole cards; river case caught by isPlayingBoard.
+    const holeRankSet = new Set(myCards.map(c => RANK_VALUE[c.rank]));
+    const holeContributes = (() => {
+      if (current.rank < HandRank.PAIR) return false;
+      if (current.rank >= HandRank.STRAIGHT) return true;
+      if (current.rank === HandRank.TWO_PAIR || current.rank === HandRank.FULL_HOUSE)
+        return holeRankSet.has(current.tiebreaker[0]) || holeRankSet.has(current.tiebreaker[1]);
+      return holeRankSet.has(current.tiebreaker[0]);  // PAIR, THREE_OF_A_KIND, FOUR_OF_A_KIND
+    })();
+
     let outs = 0, cleanOuts = 0;
     if (cardsToRiver > 0) {
       for (const card of unseen) {
@@ -463,8 +605,27 @@ export function OddsPanel({ state }: Props) {
         ) cleanOuts++;
       }
     }
-    const isTopPair = current.rank === HandRank.PAIR && current.tiebreaker[0] >= maxBoardRank;
-    return { handName: current.description, outs, cleanOuts, currentRank: current.rank, isTopPair };
+
+    // Top pair: player's hole card pairs the highest board card.
+    // Must verify hole card contribution — board = 5-5-3 has maxBoardRank 5 and the
+    // pair rank is also 5, so the old check (tiebreaker[0] >= maxBoardRank) incorrectly
+    // flagged T-7 here as top pair when the 5-5 comes entirely from the board.
+    const isTopPair = current.rank === HandRank.PAIR
+      && current.tiebreaker[0] >= maxBoardRank
+      && holeContributes;
+
+    // Detect "playing the board": hole cards contribute nothing beyond what the 5-card
+    // board already provides. Win probability is 0% — only a split is possible.
+    const isPlayingBoard = community.length === 5 && compareHands(current, getBestHand(community)) === 0;
+
+    const maxHoleRank = Math.max(...myCards.map(c => RANK_VALUE[c.rank]));
+    const handName = isPlayingBoard
+      ? `${current.description} (playing the board)`
+      : !holeContributes && current.rank >= HandRank.PAIR && current.rank < HandRank.STRAIGHT
+        ? `${current.description} — board-made, ${RANK_CHAR[maxHoleRank]} kicker`
+        : current.description;
+
+    return { handName, outs, cleanOuts, currentRank: current.rank, isTopPair, isPlayingBoard, holeContributes };
   }, [myCards.map(c=>`${c.rank}${c.suit}`).join(','), community.map(c=>`${c.rank}${c.suit}`).join(',')]);
 
   const distribution = useMemo(() => {
@@ -490,10 +651,15 @@ export function OddsPanel({ state }: Props) {
   const cleanOuts = postflopInfo?.cleanOuts ?? 0;
   const currentHandRank = postflopInfo?.currentRank ?? null;
   const isTopPair = postflopInfo?.isTopPair ?? false;
+  const isPlayingBoard = postflopInfo?.isPlayingBoard ?? false;
+  const holeContributes = postflopInfo?.holeContributes ?? true;
 
   // Made hands (two pair or better, or top pair) already have strong absolute equity;
   // counting outs to improve only measures upside, not the hand's current win probability.
-  const isMadeHand = !isPreflop && currentHandRank != null && (
+  // Require hole-card contribution: a board pair (e.g. 5-5-3 with T-7 hole) is not a
+  // made hand — the player is just playing a kicker and should use the outs formula.
+  // Exclude "playing the board" separately (equity = 0%, only splits possible).
+  const isMadeHand = !isPreflop && !isPlayingBoard && currentHandRank != null && holeContributes && (
     currentHandRank >= HandRank.TWO_PAIR || isTopPair
   );
 
@@ -501,11 +667,11 @@ export function OddsPanel({ state }: Props) {
   const streetIdx = cardsToRiver === 2 ? 0 : cardsToRiver === 1 ? 1 : 2;
 
   // Base equity (1v1):
-  //   Preflop  → 169-hand lookup table
+  //   Preflop  → range-adjusted equity (accounts for opponent range tightening at 3-bet+)
   //   Made hand → absolute hand-rank estimate (independent of outs)
   //   Draw     → clean outs × Rule-of-2/4 multiplier
   const baseEquityPct = isPreflop
-    ? (preflopStrength?.equityVsRandom ?? 0)
+    ? rangeEquityPct
     : isMadeHand
       ? (currentHandRank! >= HandRank.TWO_PAIR
           ? (MADE_HAND_BASE_EQUITY[currentHandRank!]?.[streetIdx] ?? 62)
@@ -530,6 +696,10 @@ export function OddsPanel({ state }: Props) {
     preflopStrength?.tier ?? null, preflopStrength?.impliedOddsProfile ?? null, cardsToRiver,
     currentPot, me.bet, state.bigBlindAmount, state.minRaise, me.chips, state.currentBet,
     numOpponents, isMadeHand,
+    betLevel, isDeepStack,
+    preflopStrength?.isPair ?? false,
+    preflopStrength?.pairRank ?? 0,
+    preflopStrength?.hiCard ?? 0,
   );
 
   const phase = isPreflop ? 'preflop' : onRiver ? 'river' : cardsToRiver === 1 ? 'turn' : 'flop';
@@ -566,15 +736,31 @@ export function OddsPanel({ state }: Props) {
               {preflopStrength.tier}
             </span>
           </div>
+          {betLevel >= 2 && (
+            <div className="odds-row">
+              <span className="odds-label">Action</span>
+              <span className="odds-value" style={{ color: '#fbbf24' }}>
+                Facing a {betLevel >= 4 ? '5-bet+' : betLevel === 3 ? '4-bet' : '3-bet'}
+              </span>
+            </div>
+          )}
           <div className="odds-row">
             <span className="odds-label">Equity</span>
             <span className="odds-value">
               ~{pct(adjustedEquityPct)} vs {numOpponents} opponent{numOpponents !== 1 ? 's' : ''}
               {numOpponents > 1 && (
-                <span className="odds-muted"> ({preflopStrength.equityVsRandom}% heads-up)</span>
+                <span className="odds-muted"> ({rangeEquityPct}% heads-up)</span>
               )}
             </span>
           </div>
+          {betLevel >= 2 && (
+            <div className="odds-row">
+              <span className="odds-label" />
+              <span className="odds-muted" style={{ fontSize: '0.72rem' }}>
+                {BET_LEVEL_LABEL[Math.min(betLevel, 4)] ?? BET_LEVEL_LABEL[4]}
+              </span>
+            </div>
+          )}
         </div>
       )}
 

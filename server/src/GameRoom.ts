@@ -12,7 +12,11 @@ interface RoomPlayer {
   chips: number;
 }
 
-const BOT_NAMES = ['Alice Bot', 'Bob Bot', 'Charlie Bot', 'Diana Bot'];
+const BOT_NAMES = [
+  'Alice', 'Bob', 'Charlie', 'Diana', 'Eddie', 'Fiona', 'George', 'Hannah',
+  'Ivan', 'Julia', 'Kevin', 'Laura', 'Marcus', 'Nina', 'Oscar', 'Petra',
+  'Quinn', 'Rosa', 'Sam', 'Tina', 'Ulric', 'Vera', 'Wyatt', 'Xena', 'Yusuf',
+];
 let botNameIdx = 0;
 
 function generateId(): string {
@@ -76,6 +80,14 @@ export class GameRoom {
     const idx = this.players.findIndex(p => p.id === botId && p.isBot);
     if (idx === -1) throw new Error('Bot not found');
     this.players.splice(idx, 1);
+  }
+
+  renameBot(botId: string, name: string): void {
+    const player = this.players.find(p => p.id === botId && p.isBot);
+    if (!player) throw new Error('Bot not found');
+    const trimmed = name.trim().slice(0, 20);
+    if (!trimmed) throw new Error('Name cannot be empty');
+    player.name = trimmed;
   }
 
   handleDisconnect(playerId: string): void {

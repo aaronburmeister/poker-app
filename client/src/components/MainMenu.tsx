@@ -22,6 +22,8 @@ export function MainMenu({ gameState }: Props) {
   const [options, setOptions] = useState<RoomOptions>(DEFAULT_OPTIONS);
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState('');
+  const [renamingBotId, setRenamingBotId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const inLobby = gameState?.phase === 'waiting';
   const isHost = inLobby && gameState?.myPlayerId === gameState?.players[0]?.id;
@@ -71,6 +73,17 @@ export function MainMenu({ gameState }: Props) {
     socket.emit('remove_bot', botId);
   }
 
+  function startRename(botId: string, currentName: string) {
+    setRenamingBotId(botId);
+    setRenameValue(currentName);
+  }
+
+  function commitRename(botId: string) {
+    const trimmed = renameValue.trim();
+    if (trimmed) socket.emit('rename_bot', { botId, name: trimmed });
+    setRenamingBotId(null);
+  }
+
   // ── Lobby screen ──────────────────────────────────────────────────────────
   if (screen === 'lobby' && gameState) {
     return (
@@ -84,18 +97,44 @@ export function MainMenu({ gameState }: Props) {
           <ul className="lobby-players">
             {gameState.players.map(p => (
               <li key={p.id} className="lobby-player">
-                <span>{p.name}</span>
-                {p.isBot && (
-                  <button
-                    className="btn btn-sm btn-danger"
-                    onClick={() => handleRemoveBot(p.id)}
-                    disabled={!isHost}
+                {p.isBot && isHost && renamingBotId === p.id ? (
+                  <form
+                    className="rename-form"
+                    onSubmit={e => { e.preventDefault(); commitRename(p.id); }}
                   >
-                    Remove
-                  </button>
-                )}
-                {!p.isBot && p.id === gameState.players[0]?.id && (
-                  <span className="host-badge">HOST</span>
+                    <input
+                      className="rename-input"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      maxLength={20}
+                      autoFocus
+                    />
+                    <button type="submit" className="btn btn-sm btn-primary">✓</button>
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenamingBotId(null)}>✕</button>
+                  </form>
+                ) : (
+                  <>
+                    <span>{p.name}{p.isBot && ' 🤖'}</span>
+                    {p.isBot && isHost && (
+                      <>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => startRename(p.id, p.name)}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => handleRemoveBot(p.id)}
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
+                    {!p.isBot && p.id === gameState.players[0]?.id && (
+                      <span className="host-badge">HOST</span>
+                    )}
+                  </>
                 )}
               </li>
             ))}

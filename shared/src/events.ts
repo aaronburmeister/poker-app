@@ -20,6 +20,8 @@ export interface ClientToServerEvents {
   add_bot: (difficulty: BotDifficulty) => void;
 
   remove_bot: (botId: string) => void;
+
+  rename_bot: (data: { botId: string; name: string }) => void;
 }
 
 export interface ServerToClientEvents {

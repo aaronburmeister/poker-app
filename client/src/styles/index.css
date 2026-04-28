@@ -188,6 +188,23 @@ body {
   padding: 10px 14px;
 }
 
+.rename-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.rename-input {
+  flex: 1;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: var(--radius);
+  color: var(--ui-text);
+  padding: 4px 8px;
+  font-size: 0.9rem;
+}
+
 .host-badge {
   font-size: 0.72rem;
   background: var(--chip-gold);

@@ -140,6 +140,16 @@ io.on('connection', socket => {
     }
   });
 
+  socket.on('rename_bot', ({ botId, name }) => {
+    try {
+      const { roomCode, playerId } = socket.data;
+      manager.renameBot(roomCode, playerId, botId, name);
+      broadcastState(roomCode);
+    } catch (err) {
+      socket.emit('error', String(err));
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('disconnected:', socket.id);
     const entry = manager.handleDisconnect(socket.id);

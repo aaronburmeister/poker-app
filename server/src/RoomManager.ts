@@ -62,6 +62,13 @@ export class RoomManager {
     room.removeBot(botId);
   }
 
+  renameBot(roomCode: string, requesterId: string, botId: string, name: string): void {
+    const room = this.getRoom(roomCode);
+    if (!room) throw new Error('Room not found');
+    if (room.hostId !== requesterId) throw new Error('Only the host can rename bots');
+    room.renameBot(botId, name);
+  }
+
   handleDisconnect(socketId: string): { playerId: string; roomCode: string } | null {
     const entry = this.socketIndex.get(socketId);
     if (!entry) return null;

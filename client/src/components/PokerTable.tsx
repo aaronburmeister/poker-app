@@ -90,6 +90,7 @@ export function PokerTable({ state, handHistory, settings, onSettingsChange }: P
       <div className="phase-indicator">
         {state.phase.charAt(0).toUpperCase() + state.phase.slice(1)}
         {' · '}Hand #{state.handNumber}
+        {' · '}Blinds {state.smallBlindAmount}/{state.bigBlindAmount}
       </div>
 
       {/* Settings button */}

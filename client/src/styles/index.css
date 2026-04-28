@@ -130,6 +130,30 @@ body {
 }
 .menu-form input:focus { border-color: #2563eb; }
 
+.menu-form select {
+  background: var(--ui-surface);
+  border: 1px solid #374151;
+  border-radius: var(--radius);
+  color: var(--ui-text);
+  padding: 10px 14px;
+  font-size: 1rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.menu-form select:focus { border-color: #2563eb; }
+
+.form-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ui-muted);
+  border-top: 1px solid #2d3748;
+  padding-top: 14px;
+  margin-top: 2px;
+}
+
 .form-row {
   display: flex;
   gap: 12px;

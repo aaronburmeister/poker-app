@@ -94,11 +94,26 @@ export interface GameState {
   eliminatedThisHand?: string[];
 }
 
+export interface BlindLevel {
+  small: number;
+  big: number;
+}
+
 export interface RoomOptions {
   maxPlayers: number;
+  /** Starting small blind (mirrors blindLevels[0].small) */
   smallBlind: number;
+  /** Starting big blind (mirrors blindLevels[0].big) */
   bigBlind: number;
   startingChips: number;
+  /** How many hands between blind increases; 0 = blinds never increase */
+  blindIncreaseInterval: number;
+  /**
+   * Ordered list of blind levels for the tournament structure.
+   * The server advances through this array each time the interval triggers.
+   * Must contain at least one entry (the starting level).
+   */
+  blindLevels: BlindLevel[];
 }
 
 export type BotDifficulty = 'easy';

@@ -1,7 +1,48 @@
 import { useState, FormEvent } from 'react';
-import type { BotDifficulty, BotPersonalityId, GameState, RoomOptions } from '@poker/shared';
+import type { BlindLevel, BotDifficulty, BotPersonalityId, GameState, RoomOptions } from '@poker/shared';
 import { PERSONALITIES } from '@poker/shared';
 import { socket } from '../socket';
+
+// ── Blind structure data ──────────────────────────────────────────────────────
+
+type TournamentSpeed = 'slow' | 'standard' | 'turbo';
+
+const SLOW_LEVELS: BlindLevel[] = [
+  { small: 10, big: 20 }, { small: 15, big: 30 }, { small: 20, big: 40 },
+  { small: 25, big: 50 }, { small: 40, big: 80 }, { small: 50, big: 100 },
+  { small: 75, big: 150 }, { small: 100, big: 200 }, { small: 150, big: 300 },
+  { small: 200, big: 400 }, { small: 300, big: 600 }, { small: 500, big: 1000 },
+];
+const STANDARD_LEVELS: BlindLevel[] = [
+  { small: 10, big: 20 }, { small: 20, big: 40 }, { small: 25, big: 50 },
+  { small: 50, big: 100 }, { small: 100, big: 200 }, { small: 150, big: 300 },
+  { small: 300, big: 600 }, { small: 500, big: 1000 },
+];
+const TURBO_LEVELS: BlindLevel[] = [
+  { small: 10, big: 20 }, { small: 25, big: 50 }, { small: 75, big: 150 },
+  { small: 100, big: 200 }, { small: 200, big: 400 }, { small: 500, big: 1000 },
+];
+const SPEED_LEVELS: Record<TournamentSpeed, BlindLevel[]> = {
+  slow: SLOW_LEVELS, standard: STANDARD_LEVELS, turbo: TURBO_LEVELS,
+};
+const SPEED_LABELS: Record<TournamentSpeed, string> = {
+  slow: 'Slow — gradual steps, long game',
+  standard: 'Standard — balanced progression',
+  turbo: 'Turbo — large jumps, fast finish',
+};
+
+const STARTING_BLIND_OPTIONS = [
+  { label: '10 / 20', small: 10, big: 20 },
+  { label: '25 / 50', small: 25, big: 50 },
+  { label: '100 / 200', small: 100, big: 200 },
+];
+
+function computeBlindLevels(small: number, big: number, speed: TournamentSpeed, interval: number): BlindLevel[] {
+  if (interval === 0) return [{ small, big }];
+  const levels = SPEED_LEVELS[speed];
+  const startIdx = levels.findIndex(l => l.small === small && l.big === big);
+  return startIdx >= 0 ? levels.slice(startIdx) : [{ small, big }];
+}
 
 interface Props {
   gameState: GameState | null;
@@ -12,6 +53,8 @@ const DEFAULT_OPTIONS: RoomOptions = {
   smallBlind: 10,
   bigBlind: 20,
   startingChips: 1000,
+  blindIncreaseInterval: 0,
+  blindLevels: [{ small: 10, big: 20 }],
 };
 
 type Screen = 'home' | 'create' | 'join' | 'lobby';
@@ -25,6 +68,19 @@ export function MainMenu({ gameState }: Props) {
   const [localError, setLocalError] = useState('');
   const [renamingBotId, setRenamingBotId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [startingBlindsKey, setStartingBlindsKey] = useState('10/20');
+  const [tournamentSpeed, setTournamentSpeed] = useState<TournamentSpeed>('standard');
+
+  function updateBlindSelection(blindKey: string, speed: TournamentSpeed, interval: number) {
+    const found = STARTING_BLIND_OPTIONS.find(o => `${o.small}/${o.big}` === blindKey)
+      ?? STARTING_BLIND_OPTIONS[0];
+    setOptions(o => ({
+      ...o,
+      smallBlind: found.small,
+      bigBlind: found.big,
+      blindLevels: computeBlindLevels(found.small, found.big, speed, interval),
+    }));
+  }
 
   const inLobby = gameState?.phase === 'waiting';
   const isHost = inLobby && gameState?.myPlayerId === gameState?.players[0]?.id;
@@ -205,6 +261,9 @@ export function MainMenu({ gameState }: Props) {
       <div className="menu-container">
         <h1 className="menu-title">Create Game</h1>
         <form className="menu-form" onSubmit={handleCreate}>
+
+          {/* Player Details */}
+          <div className="form-section-title">Player Details</div>
           <label>
             Your name
             <input
@@ -215,6 +274,9 @@ export function MainMenu({ gameState }: Props) {
               required
             />
           </label>
+
+          {/* Table Settings */}
+          <div className="form-section-title">Table Settings</div>
           <label>
             Starting chips
             <input
@@ -223,24 +285,6 @@ export function MainMenu({ gameState }: Props) {
               onChange={e => setOptions(o => ({ ...o, startingChips: Number(e.target.value) }))}
               min={100}
               step={100}
-            />
-          </label>
-          <label>
-            Small blind
-            <input
-              type="number"
-              value={options.smallBlind}
-              onChange={e => setOptions(o => ({ ...o, smallBlind: Number(e.target.value) }))}
-              min={1}
-            />
-          </label>
-          <label>
-            Big blind
-            <input
-              type="number"
-              value={options.bigBlind}
-              onChange={e => setOptions(o => ({ ...o, bigBlind: Number(e.target.value) }))}
-              min={2}
             />
           </label>
           <label>
@@ -253,6 +297,57 @@ export function MainMenu({ gameState }: Props) {
               max={9}
             />
           </label>
+
+          {/* Tournament Structure */}
+          <div className="form-section-title">Tournament Structure</div>
+          <label>
+            Starting blinds
+            <select
+              value={startingBlindsKey}
+              onChange={e => {
+                const key = e.target.value;
+                setStartingBlindsKey(key);
+                updateBlindSelection(key, tournamentSpeed, options.blindIncreaseInterval);
+              }}
+            >
+              {STARTING_BLIND_OPTIONS.map(o => (
+                <option key={o.label} value={`${o.small}/${o.big}`}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Increase blinds every (hands)
+            <input
+              type="number"
+              value={options.blindIncreaseInterval}
+              onChange={e => {
+                const interval = Number(e.target.value);
+                setOptions(o => ({ ...o, blindIncreaseInterval: interval }));
+                updateBlindSelection(startingBlindsKey, tournamentSpeed, interval);
+              }}
+              min={0}
+              step={1}
+              placeholder="0 = never"
+            />
+          </label>
+          {options.blindIncreaseInterval > 0 && (
+            <label>
+              Tournament speed
+              <select
+                value={tournamentSpeed}
+                onChange={e => {
+                  const speed = e.target.value as TournamentSpeed;
+                  setTournamentSpeed(speed);
+                  updateBlindSelection(startingBlindsKey, speed, options.blindIncreaseInterval);
+                }}
+              >
+                {(Object.keys(SPEED_LABELS) as TournamentSpeed[]).map(s => (
+                  <option key={s} value={s}>{SPEED_LABELS[s]}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {localError && <p className="form-error">{localError}</p>}
           <div className="form-row">
             <button type="button" className="btn btn-ghost" onClick={() => setScreen('home')}>

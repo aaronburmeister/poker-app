@@ -40,6 +40,7 @@ export class GameRoom {
   private nextHandTimer: ReturnType<typeof setTimeout> | null;
   private handNumber: number;
   private dealerPlayerId: string | null;
+  private currentBlindLevelIndex: number;
 
   constructor(roomCode: string, hostSocketId: string, hostName: string, options: RoomOptions) {
     this.roomCode = roomCode;
@@ -49,6 +50,7 @@ export class GameRoom {
     this.nextHandTimer = null;
     this.handNumber = 0;
     this.dealerPlayerId = null;
+    this.currentBlindLevelIndex = 0;
 
     const hostId = generateId();
     this.hostId = hostId;
@@ -181,6 +183,7 @@ export class GameRoom {
     const eligible = this.players.filter(p => p.chips > 0);
     if (eligible.length < 2) return; // game over
 
+    const level = this.currentLevel();
     this.engine = new GameEngine(
       eligible.map((p, i) => ({
         id: p.id,
@@ -190,7 +193,7 @@ export class GameRoom {
         seatIndex: i,
         isConnected: p.socketId !== null || p.isBot,
       })),
-      this.options,
+      { ...this.options, smallBlind: level.small, bigBlind: level.big },
       this.handNumber,
       this.dealerPlayerId ?? undefined,
     );
@@ -210,6 +213,14 @@ export class GameRoom {
           const rp = this.players.find(p => p.id === ps.id);
           if (rp) rp.chips = ps.chips;
         });
+
+        const interval = this.options.blindIncreaseInterval;
+        if (interval > 0 && this.handNumber > 0 && this.handNumber % interval === 0) {
+          this.currentBlindLevelIndex = Math.min(
+            this.currentBlindLevelIndex + 1,
+            this.options.blindLevels.length - 1,
+          );
+        }
       }
       this.engine = null;
       this.beginHand();
@@ -220,6 +231,12 @@ export class GameRoom {
 
   /** Set by the server to re-broadcast state after next hand starts */
   _onNextHand: (() => void) | null = null;
+
+  private currentLevel() {
+    const levels = this.options.blindLevels;
+    if (levels.length === 0) return { small: this.options.smallBlind, big: this.options.bigBlind };
+    return levels[Math.min(this.currentBlindLevelIndex, levels.length - 1)];
+  }
 
   private buildLobbyState(viewerId: string): GameState {
     return {
@@ -245,10 +262,10 @@ export class GameRoom {
       pots: [],
       currentPlayerIndex: 0,
       dealerIndex: 0,
-      smallBlindAmount: this.options.smallBlind,
-      bigBlindAmount: this.options.bigBlind,
+      smallBlindAmount: this.currentLevel().small,
+      bigBlindAmount: this.currentLevel().big,
       currentBet: 0,
-      minRaise: this.options.bigBlind * 2,
+      minRaise: this.currentLevel().big * 2,
       myPlayerId: viewerId,
       isMyTurn: false,
       handNumber: 0,

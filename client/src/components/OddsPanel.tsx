@@ -131,6 +131,84 @@ const BET_LEVEL_LABEL: Record<number, string> = {
   4: 'vs 5-bet range (KK+)',
 };
 
+// ── Static preflop hand tier matrix ──────────────────────────────────────────
+// Sklansky-inspired tier assignments for all 169 canonical starting hands.
+// Tiers are fixed by hand quality, never derived from raw equity percentages,
+// so T6o is always 'Weak' and AA is always 'Premium' regardless of opponent count.
+
+const PREFLOP_STATIC_TIER: Record<string, PreflopTier> = {
+  // Pairs
+  'AA': 'Premium', 'KK': 'Premium', 'QQ': 'Premium', 'JJ': 'Premium', 'TT': 'Premium',
+  '99': 'Strong',  '88': 'Strong',
+  '77': 'Playable', '66': 'Playable', '55': 'Playable',
+  '44': 'Speculative', '33': 'Speculative', '22': 'Speculative',
+  // Ace-high suited
+  'AKs': 'Premium', 'AQs': 'Premium', 'AJs': 'Strong', 'ATs': 'Strong',
+  'A9s': 'Playable', 'A8s': 'Playable', 'A7s': 'Playable', 'A6s': 'Playable',
+  'A5s': 'Playable', 'A4s': 'Playable', 'A3s': 'Playable', 'A2s': 'Playable',
+  // Ace-high offsuit
+  'AKo': 'Premium', 'AQo': 'Strong', 'AJo': 'Strong', 'ATo': 'Playable',
+  'A9o': 'Playable',
+  'A8o': 'Speculative', 'A7o': 'Speculative', 'A6o': 'Speculative',
+  'A5o': 'Speculative', 'A4o': 'Speculative', 'A3o': 'Speculative', 'A2o': 'Speculative',
+  // King-high suited
+  'KQs': 'Strong', 'KJs': 'Strong', 'KTs': 'Playable', 'K9s': 'Playable',
+  'K8s': 'Speculative', 'K7s': 'Speculative', 'K6s': 'Speculative', 'K5s': 'Speculative',
+  'K4s': 'Speculative', 'K3s': 'Speculative', 'K2s': 'Speculative',
+  // King-high offsuit
+  'KQo': 'Playable', 'KJo': 'Playable', 'KTo': 'Speculative', 'K9o': 'Speculative',
+  'K8o': 'Weak', 'K7o': 'Weak', 'K6o': 'Weak', 'K5o': 'Weak',
+  'K4o': 'Weak', 'K3o': 'Weak', 'K2o': 'Weak',
+  // Queen-high suited
+  'QJs': 'Strong', 'QTs': 'Playable', 'Q9s': 'Playable',
+  'Q8s': 'Speculative', 'Q7s': 'Speculative', 'Q6s': 'Speculative', 'Q5s': 'Speculative',
+  'Q4s': 'Weak', 'Q3s': 'Weak', 'Q2s': 'Weak',
+  // Queen-high offsuit
+  'QJo': 'Playable', 'QTo': 'Speculative', 'Q9o': 'Speculative',
+  'Q8o': 'Weak', 'Q7o': 'Weak', 'Q6o': 'Weak', 'Q5o': 'Weak',
+  'Q4o': 'Weak', 'Q3o': 'Weak', 'Q2o': 'Weak',
+  // Jack-high suited
+  'JTs': 'Strong', 'J9s': 'Playable', 'J8s': 'Playable',
+  'J7s': 'Speculative', 'J6s': 'Speculative',
+  'J5s': 'Weak', 'J4s': 'Weak', 'J3s': 'Weak', 'J2s': 'Weak',
+  // Jack-high offsuit
+  'JTo': 'Playable', 'J9o': 'Speculative', 'J8o': 'Speculative',
+  'J7o': 'Weak', 'J6o': 'Weak', 'J5o': 'Weak', 'J4o': 'Weak', 'J3o': 'Weak', 'J2o': 'Weak',
+  // Ten-high suited
+  'T9s': 'Playable', 'T8s': 'Playable', 'T7s': 'Speculative', 'T6s': 'Speculative',
+  'T5s': 'Weak', 'T4s': 'Weak', 'T3s': 'Weak', 'T2s': 'Weak',
+  // Ten-high offsuit
+  'T9o': 'Speculative', 'T8o': 'Speculative',
+  'T7o': 'Weak', 'T6o': 'Weak', 'T5o': 'Weak', 'T4o': 'Weak', 'T3o': 'Weak', 'T2o': 'Weak',
+  // Nine-high suited
+  '98s': 'Playable', '97s': 'Speculative', '96s': 'Speculative',
+  '95s': 'Weak', '94s': 'Weak', '93s': 'Weak', '92s': 'Weak',
+  // Nine-high offsuit
+  '98o': 'Speculative', '97o': 'Weak', '96o': 'Weak', '95o': 'Weak',
+  '94o': 'Weak', '93o': 'Weak', '92o': 'Weak',
+  // Eight-high suited
+  '87s': 'Playable', '86s': 'Speculative', '85s': 'Speculative',
+  '84s': 'Weak', '83s': 'Weak', '82s': 'Weak',
+  // Eight-high offsuit
+  '87o': 'Speculative', '86o': 'Weak', '85o': 'Weak', '84o': 'Weak', '83o': 'Weak', '82o': 'Weak',
+  // Seven-high suited
+  '76s': 'Playable', '75s': 'Speculative', '74s': 'Weak', '73s': 'Weak', '72s': 'Weak',
+  // Seven-high offsuit
+  '76o': 'Speculative', '75o': 'Weak', '74o': 'Weak', '73o': 'Weak', '72o': 'Weak',
+  // Six-high suited
+  '65s': 'Playable', '64s': 'Speculative', '63s': 'Weak', '62s': 'Weak',
+  // Six-high offsuit
+  '65o': 'Speculative', '64o': 'Weak', '63o': 'Weak', '62o': 'Weak',
+  // Five-high suited
+  '54s': 'Speculative', '53s': 'Weak', '52s': 'Weak',
+  // Five-high offsuit
+  '54o': 'Weak', '53o': 'Weak', '52o': 'Weak',
+  // Four-high
+  '43s': 'Weak', '42s': 'Weak', '43o': 'Weak', '42o': 'Weak',
+  // Three-high
+  '32s': 'Weak', '32o': 'Weak',
+};
+
 // ── Preflop strength ─────────────────────────────────────────────────────────
 
 type PreflopTier = 'Premium' | 'Strong' | 'Playable' | 'Speculative' | 'Weak';
@@ -174,21 +252,7 @@ function getPreflopStrength(cards: Card[]): PreflopStrength {
   const key = isPair ? `${RANK_CHAR[hi]}${RANK_CHAR[hi]}` : `${RANK_CHAR[hi]}${RANK_CHAR[lo]}${s}`;
   const equityVsRandom = PREFLOP_HU_EQUITY[key] ?? 40;
 
-  // Tier is used only for the color label — equity comes from the lookup above.
-  let tier: PreflopTier;
-  if (isPair) {
-    tier = hi >= 12 ? 'Premium' : hi >= 10 ? 'Strong' : hi >= 7 ? 'Playable' : 'Speculative';
-  } else if (equityVsRandom >= 63) {
-    tier = 'Premium';
-  } else if (equityVsRandom >= 58) {
-    tier = 'Strong';
-  } else if (equityVsRandom >= 50) {
-    tier = suited && gap <= 2 ? 'Playable' : (hi >= 11 && gap <= 2 ? 'Playable' : 'Speculative');
-  } else if (equityVsRandom >= 44) {
-    tier = 'Speculative';
-  } else {
-    tier = 'Weak';
-  }
+  const tier: PreflopTier = PREFLOP_STATIC_TIER[key] ?? 'Weak';
 
   // Pocket pairs and suited connectors/one-gappers have good implied odds (set mining,
   // flush/straight draws that either hit big or fold cheaply).
@@ -468,6 +532,14 @@ function getRecommendation(
     }
 
     // ── betLevel 0-1: open raise or no raise ────────────────────────────────
+    // Weak/Speculative facing any raise: skip pot-odds math entirely.
+    // These hands suffer from reverse implied odds — even when they hit they lose to
+    // better kickers — so no equity-to-pot-odds comparison can justify a call.
+    if (facingBet && (preflopTier === 'Weak' || preflopTier === 'Speculative'))
+      return { action: 'FOLD', reason: betLevel >= 1
+        ? 'Speculative/weak hand facing a raise — reverse implied odds make calling unprofitable even when pot odds look close. Fold and wait for a stronger spot.'
+        : 'Speculative/weak hand — poor post-flop playability and dominated kickers make limping unprofitable. Fold and wait for a stronger spot.' };
+
     if (preflopTier === 'Premium')
       return withRaise('RAISE', 'Premium hand — maximize value before the flop.');
     if (preflopTier === 'Strong')

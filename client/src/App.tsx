@@ -29,6 +29,7 @@ export default function App() {
             winners: state.winners!,
             communityCards: state.communityCards,
             showdownHands: state.showdownHands,
+            eliminatedPlayers: state.eliminatedThisHand ?? [],
           },
           ...prev,
         ]);

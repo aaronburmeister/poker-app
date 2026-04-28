@@ -38,6 +38,7 @@ export class GameEngine {
   private roundActions: Map<string, NonNullable<GameState['lastAction']>>;
   private handLog: HandLogEntry[];
   private showdownHands: Map<string, ShowdownHandInfo>;
+  private eliminatedThisHand: string[];
 
   constructor(
     players: Pick<InternalPlayer, 'id' | 'name' | 'chips' | 'isBot' | 'seatIndex' | 'isConnected'>[],
@@ -74,6 +75,7 @@ export class GameEngine {
     this.roundActions = new Map();
     this.handLog = [];
     this.showdownHands = new Map();
+    this.eliminatedThisHand = [];
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -87,6 +89,7 @@ export class GameEngine {
     this.roundActions = new Map();
     this.handLog = [];
     this.showdownHands = new Map();
+    this.eliminatedThisHand = [];
 
     this.players.forEach(p => {
       p.holeCards = [];
@@ -185,6 +188,7 @@ export class GameEngine {
       roundActions: Object.fromEntries(this.roundActions),
       handLog: this.handLog,
       showdownHands: Object.fromEntries(this.showdownHands),
+      eliminatedThisHand: this.eliminatedThisHand,
     };
   }
 
@@ -218,9 +222,13 @@ export class GameEngine {
       case 'CALL': {
         const owed = Math.min(this.currentBet - player.bet, player.chips);
         this.applyChips(player, owed);
-        if (player.chips === 0) player.status = 'all-in';
+        if (player.chips === 0) {
+          player.status = 'all-in';
+          this.lastAction = { playerId: player.id, actionText: 'goes all-in for', amount: player.bet };
+        } else {
+          this.lastAction = { playerId: player.id, actionText: 'calls', amount: owed };
+        }
         this.playersToAct.delete(player.id);
-        this.lastAction = { playerId: player.id, actionText: 'calls', amount: owed };
         break;
       }
 
@@ -235,11 +243,15 @@ export class GameEngine {
         }
         this.applyChips(player, needed);
         player.bet = action.amount;
-        if (player.chips === 0) player.status = 'all-in';
         this.lastRaiseSize = raiseSize;
         this.currentBet = action.amount;
         this.reopenAction(player.id);
-        this.lastAction = { playerId: player.id, actionText: 'raises to', amount: action.amount };
+        if (player.chips === 0) {
+          player.status = 'all-in';
+          this.lastAction = { playerId: player.id, actionText: 'goes all-in for', amount: action.amount };
+        } else {
+          this.lastAction = { playerId: player.id, actionText: 'raises to', amount: action.amount };
+        }
         break;
       }
 
@@ -304,9 +316,29 @@ export class GameEngine {
       this.communityCards.push(this.deck.deal());
     }
 
-    // If ≤1 active player (everyone else all-in), run out remaining board without betting
+    // If ≤1 active player (everyone else all-in), run out the board and log each street
+    // so history shows the full board rather than jumping straight to showdown.
     if (this.activePlayers().length <= 1) {
-      while (this.communityCards.length < 5) this.communityCards.push(this.deck.deal());
+      const hasFlop  = this.handLog.some(e => e.street === 'flop');
+      const hasTurn  = this.handLog.some(e => e.street === 'turn');
+      const hasRiver = this.handLog.some(e => e.street === 'river');
+
+      if (!hasFlop) {
+        this.handLog.push({ street: 'flop',  playerName: '', actionText: '', isStreetMarker: true });
+      }
+      if (this.communityCards.length < 4) {
+        this.communityCards.push(this.deck.deal());
+      }
+      if (!hasTurn) {
+        this.handLog.push({ street: 'turn',  playerName: '', actionText: '', isStreetMarker: true });
+      }
+      if (this.communityCards.length < 5) {
+        this.communityCards.push(this.deck.deal());
+      }
+      if (!hasRiver) {
+        this.handLog.push({ street: 'river', playerName: '', actionText: '', isStreetMarker: true });
+      }
+
       this.runShowdown();
       return;
     }
@@ -318,6 +350,10 @@ export class GameEngine {
   private runShowdown(): void {
     this.phase = 'showdown';
     this.winners = this.determineWinners();
+    // Detect players who entered this hand and finished with no chips
+    this.eliminatedThisHand = this.players
+      .filter(p => p.chips === 0 && p.totalBetThisHand > 0)
+      .map(p => p.name);
   }
 
   // ─── Winner determination ─────────────────────────────────────────────────

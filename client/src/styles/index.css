@@ -976,3 +976,4 @@ body {
 
 .hh-winner-line { color: var(--chip-gold); font-weight: 600; }
 .hh-hand-desc { color: var(--ui-muted); font-weight: 400; }
+.hh-eliminated-line { color: #f87171; font-style: italic; }

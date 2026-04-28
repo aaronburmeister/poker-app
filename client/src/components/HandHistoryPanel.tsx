@@ -7,6 +7,7 @@ export interface CompletedHand {
   winners: WinnerInfo[];
   communityCards: Card[];
   showdownHands?: Record<string, ShowdownHandInfo>;
+  eliminatedPlayers: string[];
 }
 
 interface Props {
@@ -53,12 +54,15 @@ function handToPlainText(hand: CompletedHand): string {
       currentStreet = entry.street;
       lines.push(`${streetLabel(entry.street)}${streetCardsText(entry.street, hand.communityCards)}`);
     }
-    const amt = entry.amount !== undefined ? ` ${fmtChips(entry.amount)}` : '';
-    lines.push(`  ${entry.playerName} ${entry.actionText}${amt}`);
+    if (!entry.isStreetMarker) {
+      const amt = entry.amount !== undefined ? ` ${fmtChips(entry.amount)}` : '';
+      lines.push(`  ${entry.playerName} ${entry.actionText}${amt}`);
+    }
   }
 
   if (hand.showdownHands && Object.keys(hand.showdownHands).length > 0) {
     lines.push('');
+    lines.push('Showdown');
     for (const info of Object.values(hand.showdownHands)) {
       lines.push(`  ${info.playerName}: ${info.cards.map(cardStr).join(' ')} — ${info.handDescription}`);
     }
@@ -68,6 +72,13 @@ function handToPlainText(hand: CompletedHand): string {
   for (const w of hand.winners) {
     const desc = w.handDescription ? ` (${w.handDescription})` : '';
     lines.push(`${w.playerName} wins ${fmtChips(w.amount)}${desc}`);
+  }
+
+  if (hand.eliminatedPlayers.length > 0) {
+    lines.push('');
+    for (const name of hand.eliminatedPlayers) {
+      lines.push(`${name} was eliminated`);
+    }
   }
 
   return lines.join('\n');
@@ -134,17 +145,19 @@ function HandEntry({ hand }: { hand: CompletedHand }) {
             return (
               <div key={i}>
                 {showStreet && <StreetLabel street={entry.street} communityCards={hand.communityCards} />}
-                <div className="hh-log-entry">
-                  <span className="hh-player-name">{entry.playerName}</span>
-                  {' '}{entry.actionText}{amt}
-                </div>
+                {!entry.isStreetMarker && (
+                  <div className="hh-log-entry">
+                    <span className="hh-player-name">{entry.playerName}</span>
+                    {' '}{entry.actionText}{amt}
+                  </div>
+                )}
               </div>
             );
           })}
 
           {hand.showdownHands && Object.keys(hand.showdownHands).length > 0 && (
             <div className="hh-result">
-              <StreetLabel street="showdown" communityCards={hand.communityCards} />
+              <div className="hh-street-label">Showdown</div>
               {Object.values(hand.showdownHands).map((info, i) => (
                 <div key={i} className="hh-log-entry">
                   <span className="hh-player-name">{info.playerName}</span>
@@ -168,6 +181,16 @@ function HandEntry({ hand }: { hand: CompletedHand }) {
               </div>
             ))}
           </div>
+
+          {hand.eliminatedPlayers.length > 0 && (
+            <div className="hh-result">
+              {hand.eliminatedPlayers.map((name, i) => (
+                <div key={i} className="hh-eliminated-line">
+                  {name} was eliminated
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

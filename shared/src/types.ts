@@ -54,6 +54,8 @@ export interface HandLogEntry {
   playerName: string;
   actionText: string;
   amount?: number;
+  /** If true, only the street header is rendered — no action row (used for all-in board run-outs) */
+  isStreetMarker?: boolean;
 }
 
 export interface ShowdownHandInfo {
@@ -88,6 +90,8 @@ export interface GameState {
   handLog: HandLogEntry[];
   /** Evaluated hands for non-folded players at showdown; keyed by playerId */
   showdownHands?: Record<string, ShowdownHandInfo>;
+  /** Players who entered this hand and finished with 0 chips */
+  eliminatedThisHand?: string[];
 }
 
 export interface RoomOptions {

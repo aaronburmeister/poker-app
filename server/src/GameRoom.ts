@@ -1,5 +1,5 @@
 import type {
-  BotDifficulty, GameState, PlayerAction, RoomOptions,
+  BotDifficulty, BotPersonalityId, GameState, PlayerAction, RoomOptions,
 } from '@poker/shared';
 import { GameEngine } from './GameEngine';
 import { BotPlayer } from './BotPlayer';
@@ -10,6 +10,13 @@ interface RoomPlayer {
   socketId: string | null; // null for bots
   isBot: boolean;
   chips: number;
+  personality?: BotPersonalityId;
+}
+
+const ALL_PERSONALITY_IDS: BotPersonalityId[] = ['nit', 'calling_station', 'tag', 'lag', 'maniac'];
+
+function randomPersonality(): BotPersonalityId {
+  return ALL_PERSONALITY_IDS[Math.floor(Math.random() * ALL_PERSONALITY_IDS.length)];
 }
 
 const BOT_NAMES = [
@@ -73,7 +80,7 @@ export class GameRoom {
 
     const id = generateId();
     const name = BOT_NAMES[botNameIdx++ % BOT_NAMES.length];
-    this.players.push({ id, name, socketId: null, isBot: true, chips: this.options.startingChips });
+    this.players.push({ id, name, socketId: null, isBot: true, chips: this.options.startingChips, personality: randomPersonality() });
   }
 
   removeBot(botId: string): void {
@@ -88,6 +95,13 @@ export class GameRoom {
     const trimmed = name.trim().slice(0, 20);
     if (!trimmed) throw new Error('Name cannot be empty');
     player.name = trimmed;
+  }
+
+  setBotPersonality(botId: string, personality: BotPersonalityId): void {
+    if (this.engine) throw new Error('Cannot change personality during a game');
+    const player = this.players.find(p => p.id === botId && p.isBot);
+    if (!player) throw new Error('Bot not found');
+    player.personality = personality;
   }
 
   handleDisconnect(playerId: string): void {
@@ -144,7 +158,7 @@ export class GameRoom {
     if (!player?.isBot) return null;
 
     const state = this.engine.getStateForPlayer(currentId);
-    const action = this.bot.decide(state, currentId);
+    const action = this.bot.decide(state, currentId, player.personality ?? 'tag');
     return { botId: currentId, action };
   }
 
@@ -225,6 +239,7 @@ export class GameRoom {
         isDealer: false,
         isSmallBlind: false,
         isBigBlind: false,
+        personality: p.personality,
       })),
       communityCards: [],
       pots: [],

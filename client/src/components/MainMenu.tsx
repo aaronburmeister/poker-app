@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
-import type { BotDifficulty, GameState, RoomOptions } from '@poker/shared';
+import type { BotDifficulty, BotPersonalityId, GameState, RoomOptions } from '@poker/shared';
+import { PERSONALITIES } from '@poker/shared';
 import { socket } from '../socket';
 
 interface Props {
@@ -84,6 +85,10 @@ export function MainMenu({ gameState }: Props) {
     setRenamingBotId(null);
   }
 
+  function handleSetPersonality(botId: string, personality: BotPersonalityId) {
+    socket.emit('set_bot_personality', { botId, personality });
+  }
+
   // ── Lobby screen ──────────────────────────────────────────────────────────
   if (screen === 'lobby' && gameState) {
     return (
@@ -97,44 +102,60 @@ export function MainMenu({ gameState }: Props) {
           <ul className="lobby-players">
             {gameState.players.map(p => (
               <li key={p.id} className="lobby-player">
-                {p.isBot && isHost && renamingBotId === p.id ? (
-                  <form
-                    className="rename-form"
-                    onSubmit={e => { e.preventDefault(); commitRename(p.id); }}
-                  >
-                    <input
-                      className="rename-input"
-                      value={renameValue}
-                      onChange={e => setRenameValue(e.target.value)}
-                      maxLength={20}
-                      autoFocus
-                    />
-                    <button type="submit" className="btn btn-sm btn-primary">✓</button>
-                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenamingBotId(null)}>✕</button>
-                  </form>
-                ) : (
-                  <>
-                    <span>{p.name}{p.isBot && ' 🤖'}</span>
-                    {p.isBot && isHost && (
-                      <>
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          onClick={() => startRename(p.id, p.name)}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => handleRemoveBot(p.id)}
-                        >
-                          Remove
-                        </button>
-                      </>
-                    )}
-                    {!p.isBot && p.id === gameState.players[0]?.id && (
-                      <span className="host-badge">HOST</span>
-                    )}
-                  </>
+                {/* Name row */}
+                <div className="lobby-player-top">
+                  {p.isBot && isHost && renamingBotId === p.id ? (
+                    <form
+                      className="rename-form"
+                      onSubmit={e => { e.preventDefault(); commitRename(p.id); }}
+                    >
+                      <input
+                        className="rename-input"
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        maxLength={20}
+                        autoFocus
+                      />
+                      <button type="submit" className="btn btn-sm btn-primary">✓</button>
+                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenamingBotId(null)}>✕</button>
+                    </form>
+                  ) : (
+                    <>
+                      <span>{p.name}{p.isBot && ' 🤖'}</span>
+                      <div className="lobby-player-actions">
+                        {p.isBot && isHost && (
+                          <>
+                            <button className="btn btn-sm btn-ghost" onClick={() => startRename(p.id, p.name)}>Rename</button>
+                            <button className="btn btn-sm btn-danger" onClick={() => handleRemoveBot(p.id)}>Remove</button>
+                          </>
+                        )}
+                        {!p.isBot && p.id === gameState.players[0]?.id && (
+                          <span className="host-badge">HOST</span>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Personality row (bots only) */}
+                {p.isBot && p.personality && (
+                  <div className="lobby-player-personality">
+                    <select
+                      className="personality-select"
+                      value={p.personality}
+                      disabled={!isHost}
+                      onChange={e => handleSetPersonality(p.id, e.target.value as BotPersonalityId)}
+                    >
+                      {PERSONALITIES.map(pers => (
+                        <option key={pers.id} value={pers.id} title={pers.description}>
+                          {pers.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="personality-desc">
+                      {PERSONALITIES.find(pers => pers.id === p.personality)?.description}
+                    </span>
+                  </div>
                 )}
               </li>
             ))}

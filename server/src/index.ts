@@ -150,6 +150,16 @@ io.on('connection', socket => {
     }
   });
 
+  socket.on('set_bot_personality', ({ botId, personality }) => {
+    try {
+      const { roomCode, playerId } = socket.data;
+      manager.setBotPersonality(roomCode, playerId, botId, personality);
+      broadcastState(roomCode);
+    } catch (err) {
+      socket.emit('error', String(err));
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('disconnected:', socket.id);
     const entry = manager.handleDisconnect(socket.id);

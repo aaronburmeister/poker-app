@@ -1,4 +1,4 @@
-import type { GameState, PlayerAction, RoomOptions, BotDifficulty } from './types';
+import type { GameState, PlayerAction, RoomOptions, BotDifficulty, BotPersonalityId } from './types';
 
 export interface ClientToServerEvents {
   create_room: (
@@ -22,6 +22,8 @@ export interface ClientToServerEvents {
   remove_bot: (botId: string) => void;
 
   rename_bot: (data: { botId: string; name: string }) => void;
+
+  set_bot_personality: (data: { botId: string; personality: BotPersonalityId }) => void;
 }
 
 export interface ServerToClientEvents {

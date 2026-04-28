@@ -181,11 +181,51 @@ body {
 
 .lobby-player {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 8px;
   background: #0f172a;
   border-radius: var(--radius);
   padding: 10px 14px;
+}
+
+.lobby-player-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lobby-player-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lobby-player-personality {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.personality-select {
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: var(--radius);
+  color: var(--ui-text);
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.personality-select:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.personality-desc {
+  font-size: 0.72rem;
+  color: var(--ui-muted);
+  line-height: 1.4;
 }
 
 .rename-form {

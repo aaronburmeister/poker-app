@@ -65,58 +65,80 @@ interface BotPersonalityProfile {
   /** Pot fraction used when betting/raising with a strong hand */
   strongBetSizing: number;
   /**
-   * Divides the required pot-odds equity for marginal calls.
-   * >1 = calls more liberally (Calling Station, Maniac).
-   * <1 = calls more strictly (Nit).
+   * Divides the required pot-odds equity for marginal calls at small bet sizes.
+   * >1 = calls more liberally. Scales down to minPotOddsMultiplier as the call
+   * approaches the full remaining stack, preventing stack-off with garbage hands.
    */
   potOddsMultiplier: number;
+  /**
+   * The potOddsMultiplier floor used when calling an amount equal to the full
+   * remaining stack. Each personality retains a distinct all-in calling range:
+   * Maniac ~35% equity, Calling Station ~42%, TAG ~50%, Nit needs 55%+.
+   */
+  minPotOddsMultiplier: number;
+  /**
+   * Minimum raw (pre-bluff) preflop hand strength required to raise or re-raise.
+   * Prevents garbage hands from initiating aggression regardless of the bluff roll.
+   * Does not restrict postflop play.
+   */
+  preflopRaiseFloor: number;
 }
 
 const PERSONALITY_PROFILES: Record<BotPersonalityId, BotPersonalityProfile> = {
   nit: {
-    foldThreshold:     0.45,
-    callThreshold:     0.75,
-    raiseThreshold:    0.92,
-    bluffRate:         0.02,
-    betSizing:         0.35,
-    strongBetSizing:   0.45,
-    potOddsMultiplier: 0.5,
+    foldThreshold:        0.45,
+    callThreshold:        0.75,
+    raiseThreshold:       0.92,
+    bluffRate:            0.02,
+    betSizing:            0.35,
+    strongBetSizing:      0.45,
+    potOddsMultiplier:    0.5,
+    minPotOddsMultiplier: 0.9,  // needs slightly better than pot odds even for an all-in
+    preflopRaiseFloor:    0.65, // only raises with strong pairs and premium broadway
   },
   calling_station: {
-    foldThreshold:     0.08,
-    callThreshold:     0.25,
-    raiseThreshold:    0.90,
-    bluffRate:         0.03,
-    betSizing:         0.35,
-    strongBetSizing:   0.50,
-    potOddsMultiplier: 8.0,
+    foldThreshold:        0.08,
+    callThreshold:        0.25,
+    raiseThreshold:       0.90,
+    bluffRate:            0.03,
+    betSizing:            0.35,
+    strongBetSizing:      0.50,
+    potOddsMultiplier:    8.0,
+    minPotOddsMultiplier: 1.2,  // calls all-ins with ~42% equity (wider than normal)
+    preflopRaiseFloor:    0.60, // needs a real hand to raise (rarely happens anyway)
   },
   tag: {
-    foldThreshold:     0.30,
-    callThreshold:     0.52,
-    raiseThreshold:    0.65,
-    bluffRate:         0.10,
-    betSizing:         0.65,
-    strongBetSizing:   0.85,
-    potOddsMultiplier: 1.0,
+    foldThreshold:        0.30,
+    callThreshold:        0.52,
+    raiseThreshold:       0.65,
+    bluffRate:            0.10,
+    betSizing:            0.65,
+    strongBetSizing:      0.85,
+    potOddsMultiplier:    1.0,
+    minPotOddsMultiplier: 1.0,  // strict pot odds at every stack depth
+    preflopRaiseFloor:    0.50, // pairs 22+, suited connectors, broadway hands
   },
   lag: {
-    foldThreshold:     0.18,
-    callThreshold:     0.38,
-    raiseThreshold:    0.52,
-    bluffRate:         0.22,
-    betSizing:         0.80,
-    strongBetSizing:   1.0,
-    potOddsMultiplier: 1.8,
+    foldThreshold:        0.18,
+    callThreshold:        0.38,
+    raiseThreshold:       0.52,
+    bluffRate:            0.22,
+    betSizing:            0.80,
+    strongBetSizing:      1.0,
+    potOddsMultiplier:    1.8,
+    minPotOddsMultiplier: 1.1,  // calls all-ins with ~45% equity
+    preflopRaiseFloor:    0.34, // raises with suited connectors and above (not pure trash)
   },
   maniac: {
-    foldThreshold:     0.05,
-    callThreshold:     0.12,
-    raiseThreshold:    0.25,
-    bluffRate:         0.40,
-    betSizing:         1.10,
-    strongBetSizing:   1.50,
-    potOddsMultiplier: 12.0,
+    foldThreshold:        0.05,
+    callThreshold:        0.12,
+    raiseThreshold:       0.25,
+    bluffRate:            0.40,
+    betSizing:            1.10,
+    strongBetSizing:      1.50,
+    potOddsMultiplier:    12.0,
+    minPotOddsMultiplier: 1.4,  // calls all-ins with ~35% equity — wide but not suicidal
+    preflopRaiseFloor:    0.28, // blocks absolute garbage (7-2o=0.15) but allows weak connectors+
   },
 };
 
@@ -142,22 +164,34 @@ export class BotPlayer {
     const bluff = Math.random() < profile.bluffRate;
     const effectiveStrength = bluff ? Math.min(1, strength + 0.3) : strength;
 
+    // How much of remaining chips this call would consume (0 = nothing, 1 = entire stack).
+    // Used to scale down the potOddsMultiplier so bots don't stack off with garbage hands.
+    const stackCommitRatio = me.chips > 0 ? Math.min(1, callAmount / me.chips) : 1;
+    const adjustedPotOddsMultiplier =
+      profile.minPotOddsMultiplier +
+      (profile.potOddsMultiplier - profile.minPotOddsMultiplier) * (1 - stackCommitRatio);
+
+    // Preflop: require minimum raw hand strength to raise regardless of bluff bonus.
+    // Prevents garbage hands from bluff-rolling into all-in aggression preflop.
+    const isPreflop = state.phase === 'preflop';
+    const canRaisePreflop = !isPreflop || strength >= profile.preflopRaiseFloor;
+
     // Weak hand: fold if facing a bet, else check
     if (effectiveStrength < profile.foldThreshold) {
       return callAmount > 0 ? { type: 'FOLD' } : { type: 'CHECK' };
     }
 
-    // Marginal hand: call only if pot odds are acceptable (adjusted by personality)
+    // Marginal hand: call only if pot odds are acceptable, scaled by stack commitment
     if (effectiveStrength < profile.callThreshold) {
       if (callAmount === 0) return { type: 'CHECK' };
-      if (effectiveStrength > potOdds / profile.potOddsMultiplier) return { type: 'CALL' };
+      if (effectiveStrength > potOdds / adjustedPotOddsMultiplier) return { type: 'CALL' };
       return { type: 'FOLD' };
     }
 
     // Decent hand: bet small or call
     if (effectiveStrength < profile.raiseThreshold) {
       if (callAmount === 0) {
-        if (Math.random() < 0.4 && potSize > 0) {
+        if (canRaisePreflop && Math.random() < 0.4 && potSize > 0) {
           const betAmount = Math.min(
             me.bet + Math.floor(potSize * profile.betSizing),
             me.bet + me.chips,
@@ -169,13 +203,19 @@ export class BotPlayer {
       return { type: 'CALL' };
     }
 
-    // Strong hand: raise or re-raise
+    // Strong hand: raise or re-raise (guarded preflop by hand quality floor)
     if (callAmount === 0) {
-      const betAmount = me.bet + Math.floor(potSize * profile.strongBetSizing);
-      const capped = Math.min(betAmount, me.bet + me.chips);
-      if (capped > state.currentBet && me.chips > 0) return { type: 'RAISE', amount: capped };
+      if (canRaisePreflop && me.chips > 0) {
+        const betAmount = Math.min(
+          me.bet + Math.floor(potSize * profile.strongBetSizing),
+          me.bet + me.chips,
+        );
+        if (betAmount > state.currentBet) return { type: 'RAISE', amount: betAmount };
+      }
       return { type: 'CHECK' };
     }
+
+    if (!canRaisePreflop) return { type: 'CALL' };
 
     const raiseAmount = Math.max(
       state.minRaise,

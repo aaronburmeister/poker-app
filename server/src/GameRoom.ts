@@ -1,5 +1,5 @@
 import type {
-  BotDifficulty, GameState, PlayerAction, RoomOptions,
+  BotDifficulty, BotPersonalityId, GameState, PlayerAction, RoomOptions,
 } from '@poker/shared';
 import { GameEngine } from './GameEngine';
 import { BotPlayer } from './BotPlayer';
@@ -10,9 +10,20 @@ interface RoomPlayer {
   socketId: string | null; // null for bots
   isBot: boolean;
   chips: number;
+  personality?: BotPersonalityId;
 }
 
-const BOT_NAMES = ['Alice Bot', 'Bob Bot', 'Charlie Bot', 'Diana Bot'];
+const ALL_PERSONALITY_IDS: BotPersonalityId[] = ['nit', 'calling_station', 'tag', 'lag', 'maniac'];
+
+function randomPersonality(): BotPersonalityId {
+  return ALL_PERSONALITY_IDS[Math.floor(Math.random() * ALL_PERSONALITY_IDS.length)];
+}
+
+const BOT_NAMES = [
+  'Alice', 'Bob', 'Charlie', 'Diana', 'Eddie', 'Fiona', 'George', 'Hannah',
+  'Ivan', 'Julia', 'Kevin', 'Laura', 'Marcus', 'Nina', 'Oscar', 'Petra',
+  'Quinn', 'Rosa', 'Sam', 'Tina', 'Ulric', 'Vera', 'Wyatt', 'Xena', 'Yusuf',
+];
 let botNameIdx = 0;
 
 function generateId(): string {
@@ -27,6 +38,9 @@ export class GameRoom {
   private engine: GameEngine | null;
   private bot: BotPlayer;
   private nextHandTimer: ReturnType<typeof setTimeout> | null;
+  private handNumber: number;
+  private dealerPlayerId: string | null;
+  private currentBlindLevelIndex: number;
 
   constructor(roomCode: string, hostSocketId: string, hostName: string, options: RoomOptions) {
     this.roomCode = roomCode;
@@ -34,6 +48,9 @@ export class GameRoom {
     this.bot = new BotPlayer();
     this.engine = null;
     this.nextHandTimer = null;
+    this.handNumber = 0;
+    this.dealerPlayerId = null;
+    this.currentBlindLevelIndex = 0;
 
     const hostId = generateId();
     this.hostId = hostId;
@@ -65,13 +82,28 @@ export class GameRoom {
 
     const id = generateId();
     const name = BOT_NAMES[botNameIdx++ % BOT_NAMES.length];
-    this.players.push({ id, name, socketId: null, isBot: true, chips: this.options.startingChips });
+    this.players.push({ id, name, socketId: null, isBot: true, chips: this.options.startingChips, personality: randomPersonality() });
   }
 
   removeBot(botId: string): void {
     const idx = this.players.findIndex(p => p.id === botId && p.isBot);
     if (idx === -1) throw new Error('Bot not found');
     this.players.splice(idx, 1);
+  }
+
+  renameBot(botId: string, name: string): void {
+    const player = this.players.find(p => p.id === botId && p.isBot);
+    if (!player) throw new Error('Bot not found');
+    const trimmed = name.trim().slice(0, 20);
+    if (!trimmed) throw new Error('Name cannot be empty');
+    player.name = trimmed;
+  }
+
+  setBotPersonality(botId: string, personality: BotPersonalityId): void {
+    if (this.engine) throw new Error('Cannot change personality during a game');
+    const player = this.players.find(p => p.id === botId && p.isBot);
+    if (!player) throw new Error('Bot not found');
+    player.personality = personality;
   }
 
   handleDisconnect(playerId: string): void {
@@ -128,7 +160,7 @@ export class GameRoom {
     if (!player?.isBot) return null;
 
     const state = this.engine.getStateForPlayer(currentId);
-    const action = this.bot.decide(state, currentId);
+    const action = this.bot.decide(state, currentId, player.personality ?? 'tag');
     return { botId: currentId, action };
   }
 
@@ -151,6 +183,7 @@ export class GameRoom {
     const eligible = this.players.filter(p => p.chips > 0);
     if (eligible.length < 2) return; // game over
 
+    const level = this.currentLevel();
     this.engine = new GameEngine(
       eligible.map((p, i) => ({
         id: p.id,
@@ -160,7 +193,9 @@ export class GameRoom {
         seatIndex: i,
         isConnected: p.socketId !== null || p.isBot,
       })),
-      this.options,
+      { ...this.options, smallBlind: level.small, bigBlind: level.big },
+      this.handNumber,
+      this.dealerPlayerId ?? undefined,
     );
     this.engine.startHand();
   }
@@ -172,10 +207,20 @@ export class GameRoom {
       // Sync chips from engine back to room players after hand resolves
       if (this.engine) {
         const finalState = this.engine.getStateForPlayer(this.players[0].id);
+        this.handNumber = finalState.handNumber;
+        this.dealerPlayerId = finalState.players[finalState.dealerIndex]?.id ?? null;
         finalState.players.forEach(ps => {
           const rp = this.players.find(p => p.id === ps.id);
           if (rp) rp.chips = ps.chips;
         });
+
+        const interval = this.options.blindIncreaseInterval;
+        if (interval > 0 && this.handNumber > 0 && this.handNumber % interval === 0) {
+          this.currentBlindLevelIndex = Math.min(
+            this.currentBlindLevelIndex + 1,
+            this.options.blindLevels.length - 1,
+          );
+        }
       }
       this.engine = null;
       this.beginHand();
@@ -186,6 +231,12 @@ export class GameRoom {
 
   /** Set by the server to re-broadcast state after next hand starts */
   _onNextHand: (() => void) | null = null;
+
+  private currentLevel() {
+    const levels = this.options.blindLevels;
+    if (levels.length === 0) return { small: this.options.smallBlind, big: this.options.bigBlind };
+    return levels[Math.min(this.currentBlindLevelIndex, levels.length - 1)];
+  }
 
   private buildLobbyState(viewerId: string): GameState {
     return {
@@ -205,18 +256,22 @@ export class GameRoom {
         isDealer: false,
         isSmallBlind: false,
         isBigBlind: false,
+        personality: p.personality,
       })),
       communityCards: [],
       pots: [],
       currentPlayerIndex: 0,
       dealerIndex: 0,
-      smallBlindAmount: this.options.smallBlind,
-      bigBlindAmount: this.options.bigBlind,
+      smallBlindAmount: this.currentLevel().small,
+      bigBlindAmount: this.currentLevel().big,
       currentBet: 0,
-      minRaise: this.options.bigBlind * 2,
+      minRaise: this.currentLevel().big * 2,
       myPlayerId: viewerId,
       isMyTurn: false,
       handNumber: 0,
+      roundActions: {},
+      handLog: [],
+      showdownHands: {},
     };
   }
 }

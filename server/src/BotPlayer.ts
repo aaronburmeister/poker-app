@@ -1,4 +1,5 @@
 import type { Card, GameState, PlayerAction, Rank } from '@poker/shared';
+import type { BotPersonalityId } from '@poker/shared';
 import { getBestHand } from './HandEvaluator';
 
 const RANK_VALUE: Record<Rank, number> = {
@@ -7,7 +8,6 @@ const RANK_VALUE: Record<Rank, number> = {
 };
 
 // Pre-flop hand strength 0–1 based on hole cards.
-// Designed to give the bot a reasonable range without being exploitable.
 function preflopStrength(cards: Card[]): number {
   const [a, b] = cards.map(c => RANK_VALUE[c.rank]).sort((x, y) => y - x);
   const suited = cards[0].suit === cards[1].suit;
@@ -15,24 +15,24 @@ function preflopStrength(cards: Card[]): number {
   const gap = a - b;
 
   if (paired) {
-    if (a >= 14) return 1.0;  // AA
-    if (a >= 12) return 0.90; // KK, QQ
-    if (a >= 10) return 0.80; // JJ, TT
-    if (a >= 7)  return 0.65; // 99–77
-    return 0.50;              // 66–22
+    if (a >= 14) return 1.0;
+    if (a >= 12) return 0.90;
+    if (a >= 10) return 0.80;
+    if (a >= 7)  return 0.65;
+    return 0.50;
   }
 
   if (a === 14) {
-    if (b >= 13) return suited ? 0.95 : 0.85; // AK
-    if (b >= 12) return suited ? 0.85 : 0.75; // AQ
-    if (b >= 11) return suited ? 0.78 : 0.68; // AJ
-    if (b >= 10) return suited ? 0.72 : 0.60; // AT
-    return suited ? 0.60 : 0.45;              // A2–A9
+    if (b >= 13) return suited ? 0.95 : 0.85;
+    if (b >= 12) return suited ? 0.85 : 0.75;
+    if (b >= 11) return suited ? 0.78 : 0.68;
+    if (b >= 10) return suited ? 0.72 : 0.60;
+    return suited ? 0.60 : 0.45;
   }
 
-  if (a === 13 && b >= 12) return suited ? 0.75 : 0.65; // KQ
-  if (a >= 11 && gap <= 1) return suited ? 0.65 : 0.55; // QJ, JT connectors
-  if (gap <= 1 && a >= 9) return suited ? 0.55 : 0.42;  // connected mid-cards
+  if (a === 13 && b >= 12) return suited ? 0.75 : 0.65;
+  if (a >= 11 && gap <= 1) return suited ? 0.65 : 0.55;
+  if (gap <= 1 && a >= 9)  return suited ? 0.55 : 0.42;
   if (suited && gap <= 2 && a >= 8) return 0.38;
   if (gap <= 1) return 0.30;
   return 0.15;
@@ -49,8 +49,103 @@ function postFlopStrength(holeCards: Card[], communityCards: Card[]): number {
   }
 }
 
+// ── Personality profiles ──────────────────────────────────────────────────────
+
+interface BotPersonalityProfile {
+  /** Strength below which the bot folds (or checks if no bet to call) */
+  foldThreshold: number;
+  /** Strength below which the bot only calls (if pot odds allow) */
+  callThreshold: number;
+  /** Strength below which the bot makes a small bet/call; above = raise big */
+  raiseThreshold: number;
+  /** Probability of adding a bluff bonus to effective strength */
+  bluffRate: number;
+  /** Pot fraction used when betting with a decent (non-premium) hand */
+  betSizing: number;
+  /** Pot fraction used when betting/raising with a strong hand */
+  strongBetSizing: number;
+  /**
+   * Divides the required pot-odds equity for marginal calls at small bet sizes.
+   * >1 = calls more liberally. Scales down to minPotOddsMultiplier as the call
+   * approaches the full remaining stack, preventing stack-off with garbage hands.
+   */
+  potOddsMultiplier: number;
+  /**
+   * The potOddsMultiplier floor used when calling an amount equal to the full
+   * remaining stack. Each personality retains a distinct all-in calling range:
+   * Maniac ~35% equity, Calling Station ~42%, TAG ~50%, Nit needs 55%+.
+   */
+  minPotOddsMultiplier: number;
+  /**
+   * Minimum raw (pre-bluff) preflop hand strength required to raise or re-raise.
+   * Prevents garbage hands from initiating aggression regardless of the bluff roll.
+   * Does not restrict postflop play.
+   */
+  preflopRaiseFloor: number;
+}
+
+const PERSONALITY_PROFILES: Record<BotPersonalityId, BotPersonalityProfile> = {
+  nit: {
+    foldThreshold:        0.45,
+    callThreshold:        0.75,
+    raiseThreshold:       0.92,
+    bluffRate:            0.02,
+    betSizing:            0.35,
+    strongBetSizing:      0.45,
+    potOddsMultiplier:    0.5,
+    minPotOddsMultiplier: 0.9,  // needs slightly better than pot odds even for an all-in
+    preflopRaiseFloor:    0.65, // only raises with strong pairs and premium broadway
+  },
+  calling_station: {
+    foldThreshold:        0.08,
+    callThreshold:        0.25,
+    raiseThreshold:       0.90,
+    bluffRate:            0.03,
+    betSizing:            0.35,
+    strongBetSizing:      0.50,
+    potOddsMultiplier:    8.0,
+    minPotOddsMultiplier: 1.2,  // calls all-ins with ~42% equity (wider than normal)
+    preflopRaiseFloor:    0.60, // needs a real hand to raise (rarely happens anyway)
+  },
+  tag: {
+    foldThreshold:        0.30,
+    callThreshold:        0.52,
+    raiseThreshold:       0.65,
+    bluffRate:            0.10,
+    betSizing:            0.65,
+    strongBetSizing:      0.85,
+    potOddsMultiplier:    1.0,
+    minPotOddsMultiplier: 1.0,  // strict pot odds at every stack depth
+    preflopRaiseFloor:    0.50, // pairs 22+, suited connectors, broadway hands
+  },
+  lag: {
+    foldThreshold:        0.18,
+    callThreshold:        0.38,
+    raiseThreshold:       0.52,
+    bluffRate:            0.22,
+    betSizing:            0.80,
+    strongBetSizing:      1.0,
+    potOddsMultiplier:    1.8,
+    minPotOddsMultiplier: 1.1,  // calls all-ins with ~45% equity
+    preflopRaiseFloor:    0.34, // raises with suited connectors and above (not pure trash)
+  },
+  maniac: {
+    foldThreshold:        0.05,
+    callThreshold:        0.12,
+    raiseThreshold:       0.25,
+    bluffRate:            0.40,
+    betSizing:            1.10,
+    strongBetSizing:      1.50,
+    potOddsMultiplier:    12.0,
+    minPotOddsMultiplier: 1.4,  // calls all-ins with ~35% equity — wide but not suicidal
+    preflopRaiseFloor:    0.28, // blocks absolute garbage (7-2o=0.15) but allows weak connectors+
+  },
+};
+
+// ── BotPlayer ─────────────────────────────────────────────────────────────────
+
 export class BotPlayer {
-  decide(state: GameState, botId: string): PlayerAction {
+  decide(state: GameState, botId: string, personality: BotPersonalityId = 'tag'): PlayerAction {
     const me = state.players.find(p => p.id === botId);
     if (!me) return { type: 'FOLD' };
 
@@ -65,56 +160,69 @@ export class BotPlayer {
       ? preflopStrength(myCards)
       : postFlopStrength(myCards, state.communityCards);
 
-    // Small random bluff factor so the bot isn't purely mechanical
-    const bluff = Math.random() < 0.08;
-
+    const profile = PERSONALITY_PROFILES[personality];
+    const bluff = Math.random() < profile.bluffRate;
     const effectiveStrength = bluff ? Math.min(1, strength + 0.3) : strength;
 
-    if (effectiveStrength < 0.25) {
-      // Weak hand: fold if there's a bet, else check
+    // How much of remaining chips this call would consume (0 = nothing, 1 = entire stack).
+    // Used to scale down the potOddsMultiplier so bots don't stack off with garbage hands.
+    const stackCommitRatio = me.chips > 0 ? Math.min(1, callAmount / me.chips) : 1;
+    const adjustedPotOddsMultiplier =
+      profile.minPotOddsMultiplier +
+      (profile.potOddsMultiplier - profile.minPotOddsMultiplier) * (1 - stackCommitRatio);
+
+    // Preflop: require minimum raw hand strength to raise regardless of bluff bonus.
+    // Prevents garbage hands from bluff-rolling into all-in aggression preflop.
+    const isPreflop = state.phase === 'preflop';
+    const canRaisePreflop = !isPreflop || strength >= profile.preflopRaiseFloor;
+
+    // Weak hand: fold if facing a bet, else check
+    if (effectiveStrength < profile.foldThreshold) {
       return callAmount > 0 ? { type: 'FOLD' } : { type: 'CHECK' };
     }
 
-    if (effectiveStrength < 0.50) {
-      // Marginal: call if pot odds justify it
+    // Marginal hand: call only if pot odds are acceptable, scaled by stack commitment
+    if (effectiveStrength < profile.callThreshold) {
       if (callAmount === 0) return { type: 'CHECK' };
-      if (effectiveStrength > potOdds) return { type: 'CALL' };
+      if (effectiveStrength > potOdds / adjustedPotOddsMultiplier) return { type: 'CALL' };
       return { type: 'FOLD' };
     }
 
-    if (effectiveStrength < 0.75) {
-      // Decent hand: call or small raise
+    // Decent hand: bet small or call
+    if (effectiveStrength < profile.raiseThreshold) {
       if (callAmount === 0) {
-        // Bet half pot occasionally
-        if (Math.random() < 0.4 && potSize > 0) {
+        if (canRaisePreflop && Math.random() < 0.4 && potSize > 0) {
           const betAmount = Math.min(
-            me.bet + Math.floor(potSize * 0.5),
+            me.bet + Math.floor(potSize * profile.betSizing),
             me.bet + me.chips,
           );
-          if (betAmount > state.currentBet) {
-            return { type: 'RAISE', amount: betAmount };
-          }
+          if (betAmount > state.currentBet) return { type: 'RAISE', amount: betAmount };
         }
         return { type: 'CHECK' };
       }
       return { type: 'CALL' };
     }
 
-    // Strong hand: raise or re-raise
+    // Strong hand: raise or re-raise (guarded preflop by hand quality floor)
     if (callAmount === 0) {
-      const betAmount = me.bet + Math.floor(potSize * 0.75);
-      const capped = Math.min(betAmount, me.bet + me.chips);
-      if (capped > state.currentBet && me.chips > 0) {
-        return { type: 'RAISE', amount: capped };
+      if (canRaisePreflop && me.chips > 0) {
+        const betAmount = Math.min(
+          me.bet + Math.floor(potSize * profile.strongBetSizing),
+          me.bet + me.chips,
+        );
+        if (betAmount > state.currentBet) return { type: 'RAISE', amount: betAmount };
       }
       return { type: 'CHECK' };
     }
 
-    const raiseAmount = Math.max(state.minRaise, state.currentBet + Math.floor(potSize * 0.5));
+    if (!canRaisePreflop) return { type: 'CALL' };
+
+    const raiseAmount = Math.max(
+      state.minRaise,
+      state.currentBet + Math.floor(potSize * profile.strongBetSizing),
+    );
     const capped = Math.min(raiseAmount, me.bet + me.chips);
-    if (capped > state.currentBet && capped >= state.minRaise) {
-      return { type: 'RAISE', amount: capped };
-    }
+    if (capped > state.currentBet && capped >= state.minRaise) return { type: 'RAISE', amount: capped };
     return { type: 'CALL' };
   }
 }

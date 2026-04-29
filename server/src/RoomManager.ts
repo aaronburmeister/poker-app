@@ -1,4 +1,4 @@
-import type { BotDifficulty, PlayerAction, RoomOptions } from '@poker/shared';
+import type { BotDifficulty, BotPersonalityId, PlayerAction, RoomOptions } from '@poker/shared';
 import { GameRoom } from './GameRoom';
 
 function generateRoomCode(): string {
@@ -60,6 +60,20 @@ export class RoomManager {
     if (!room) throw new Error('Room not found');
     if (room.hostId !== requesterId) throw new Error('Only the host can remove bots');
     room.removeBot(botId);
+  }
+
+  renameBot(roomCode: string, requesterId: string, botId: string, name: string): void {
+    const room = this.getRoom(roomCode);
+    if (!room) throw new Error('Room not found');
+    if (room.hostId !== requesterId) throw new Error('Only the host can rename bots');
+    room.renameBot(botId, name);
+  }
+
+  setBotPersonality(roomCode: string, requesterId: string, botId: string, personality: BotPersonalityId): void {
+    const room = this.getRoom(roomCode);
+    if (!room) throw new Error('Room not found');
+    if (room.hostId !== requesterId) throw new Error('Only the host can change bot personalities');
+    room.setBotPersonality(botId, personality);
   }
 
   handleDisconnect(socketId: string): { playerId: string; roomCode: string } | null {

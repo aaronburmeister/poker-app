@@ -9,6 +9,8 @@ const DEFAULT_OPTS: RoomOptions = {
   smallBlind: 10,
   bigBlind: 20,
   startingChips: 1000,
+  blindIncreaseInterval: 0,
+  blindLevels: [{ small: 10, big: 20 }],
 };
 
 function makeEngine(numPlayers: number, opts: Partial<RoomOptions> = {}) {
@@ -376,7 +378,7 @@ describe('GameEngine — winner determination & chip conservation', () => {
         { id: 'p1', name: 'Short', chips: 100, isBot: false, seatIndex: 0, isConnected: true },
         { id: 'p2', name: 'Deep',  chips: 1000, isBot: false, seatIndex: 1, isConnected: true },
       ],
-      { maxPlayers: 9, smallBlind: 10, bigBlind: 20, startingChips: 1000 },
+      { maxPlayers: 9, smallBlind: 10, bigBlind: 20, startingChips: 1000, blindIncreaseInterval: 0, blindLevels: [{ small: 10, big: 20 }] },
     );
     engine.startHand();
 

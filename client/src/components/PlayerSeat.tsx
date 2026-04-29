@@ -1,25 +1,41 @@
-import type { PlayerState } from '@poker/shared';
+import type { LastAction, PlayerState } from '@poker/shared';
 import { CardComponent } from './CardComponent';
 
 interface Props {
   player: PlayerState;
   isCurrentTurn: boolean;
   isSelf: boolean;
+  lastAction?: LastAction;
 }
 
 function fmtChips(n: number): string {
   return n.toLocaleString();
 }
 
-export function PlayerSeat({ player, isCurrentTurn, isSelf }: Props) {
+function formatActionLabel(action: LastAction): string {
+  const amt = action.amount !== undefined ? ` ${action.amount.toLocaleString()}` : '';
+  switch (action.actionText) {
+    case 'checks':       return 'CHECKED';
+    case 'calls':        return `CALLED${amt}`;
+    case 'raises to':    return `RAISED TO${amt}`;
+    case 'goes all-in for': return `ALL IN${amt}`;
+    default:             return action.actionText.toUpperCase();
+  }
+}
+
+export function PlayerSeat({ player, isCurrentTurn, isSelf, lastAction }: Props) {
   const isFolded = player.status === 'folded';
   const isAllIn = player.status === 'all-in';
   const isOut = player.status === 'sitting-out';
 
   let statusLabel = '';
-  if (isFolded) statusLabel = 'Folded';
-  else if (isAllIn) statusLabel = 'All In';
-  else if (isOut) statusLabel = 'Out';
+  if (isFolded) statusLabel = 'FOLDED';
+  else if (isAllIn) statusLabel = 'ALL IN';
+  else if (isOut) statusLabel = 'OUT';
+
+  const isLastActor = lastAction?.playerId === player.id;
+  // Don't show action label when a permanent status badge already covers it
+  const actionLabel = isLastActor && !isFolded && !isOut ? formatActionLabel(lastAction!) : null;
 
   let badge = '';
   if (player.isDealer) badge = 'D';
@@ -59,6 +75,7 @@ export function PlayerSeat({ player, isCurrentTurn, isSelf }: Props) {
         </div>
         <div className="player-chips">{fmtChips(player.chips)}</div>
         {statusLabel && <div className="player-status">{statusLabel}</div>}
+        {actionLabel && <div className="player-action-label">{actionLabel}</div>}
       </div>
 
       {player.bet > 0 && (

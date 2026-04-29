@@ -1,10 +1,18 @@
+import { useState } from 'react';
 import type { GameState, PlayerState } from '@poker/shared';
 import { CardComponent } from './CardComponent';
 import { PlayerSeat } from './PlayerSeat';
 import { ActionPanel } from './ActionPanel';
+import { HandHistoryPanel, type CompletedHand } from './HandHistoryPanel';
+import { HandRankingsGuide } from './HandRankingsGuide';
+import { SettingsModal, type Settings } from './SettingsModal';
+import { OddsPanel } from './OddsPanel';
 
 interface Props {
   state: GameState;
+  handHistory: CompletedHand[];
+  settings: Settings;
+  onSettingsChange: (s: Settings) => void;
 }
 
 function fmtChips(n: number): string {
@@ -12,18 +20,15 @@ function fmtChips(n: number): string {
 }
 
 function totalPot(state: GameState): number {
-  // pots are calculated from totalBetThisHand which already includes current-round bets
   return state.pots.reduce((s, p) => s + p.amount, 0);
 }
 
-/** Evenly distribute N players around an ellipse, starting from the bottom-centre for self */
 function seatPositions(players: PlayerState[], myId: string): { x: number; y: number }[] {
   const n = players.length;
   const myIdx = players.findIndex(p => p.id === myId);
   const cx = 50, cy = 50, rx = 42, ry = 38;
 
   return players.map((_, i) => {
-    // Offset so "self" is always at the bottom
     const offset = myIdx >= 0 ? myIdx : 0;
     const angle = (2 * Math.PI * (i - offset)) / n - Math.PI / 2;
     return {
@@ -33,19 +38,15 @@ function seatPositions(players: PlayerState[], myId: string): { x: number; y: nu
   });
 }
 
-export function PokerTable({ state }: Props) {
+export function PokerTable({ state, handHistory, settings, onSettingsChange }: Props) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const positions = seatPositions(state.players, state.myPlayerId);
   const pot = totalPot(state);
-
-  const lastActionPlayer = state.lastAction
-    ? state.players.find(p => p.id === state.lastAction?.playerId)
-    : null;
 
   return (
     <div className="table-container">
       {/* Felt table */}
       <div className="felt-table">
-        {/* Community cards + pot */}
         <div className="board-center">
           <div className="community-cards">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -53,13 +54,6 @@ export function PokerTable({ state }: Props) {
             ))}
           </div>
           {pot > 0 && <div className="pot-display">Pot: {fmtChips(pot)}</div>}
-          {state.phase !== 'showdown' && state.lastAction && lastActionPlayer && (
-            <div className="last-action">
-              {lastActionPlayer.name}{' '}
-              {state.lastAction.actionText}
-              {state.lastAction.amount !== undefined ? ` ${fmtChips(state.lastAction.amount)}` : ''}
-            </div>
-          )}
           {state.phase === 'showdown' && state.winners && (
             <div className="winners-display">
               {state.winners.map((w, i) => (
@@ -72,7 +66,6 @@ export function PokerTable({ state }: Props) {
           )}
         </div>
 
-        {/* Player seats, positioned absolutely around the table */}
         {state.players.map((player, i) => (
           <div
             key={player.id}
@@ -83,19 +76,37 @@ export function PokerTable({ state }: Props) {
               player={player}
               isCurrentTurn={i === state.currentPlayerIndex && state.phase !== 'showdown' && state.phase !== 'waiting'}
               isSelf={player.id === state.myPlayerId}
+              lastAction={state.roundActions[player.id]}
             />
           </div>
         ))}
       </div>
 
-      {/* Action controls outside the table */}
+      {/* Action controls + odds panel */}
       <ActionPanel state={state} />
+      {settings.showOdds && <OddsPanel state={state} />}
 
       {/* Phase indicator */}
       <div className="phase-indicator">
         {state.phase.charAt(0).toUpperCase() + state.phase.slice(1)}
         {' · '}Hand #{state.handNumber}
+        {' · '}Blinds {state.smallBlindAmount}/{state.bigBlindAmount}
       </div>
+
+      {/* Settings button */}
+      <button className="settings-btn" onClick={() => setSettingsOpen(true)}>⚙</button>
+      {settingsOpen && (
+        <SettingsModal
+          settings={settings}
+          onChange={s => { onSettingsChange(s); setSettingsOpen(false); }}
+        />
+      )}
+
+      {/* Hand history panel */}
+      <HandHistoryPanel history={handHistory} />
+
+      {/* Hand rankings reference */}
+      <HandRankingsGuide />
     </div>
   );
 }

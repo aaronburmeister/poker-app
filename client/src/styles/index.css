@@ -130,6 +130,30 @@ body {
 }
 .menu-form input:focus { border-color: #2563eb; }
 
+.menu-form select {
+  background: var(--ui-surface);
+  border: 1px solid #374151;
+  border-radius: var(--radius);
+  color: var(--ui-text);
+  padding: 10px 14px;
+  font-size: 1rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.menu-form select:focus { border-color: #2563eb; }
+
+.form-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ui-muted);
+  border-top: 1px solid #2d3748;
+  padding-top: 14px;
+  margin-top: 2px;
+}
+
 .form-row {
   display: flex;
   gap: 12px;
@@ -181,11 +205,68 @@ body {
 
 .lobby-player {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 8px;
   background: #0f172a;
   border-radius: var(--radius);
   padding: 10px 14px;
+}
+
+.lobby-player-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lobby-player-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lobby-player-personality {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.personality-select {
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: var(--radius);
+  color: var(--ui-text);
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.personality-select:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.personality-desc {
+  font-size: 0.72rem;
+  color: var(--ui-muted);
+  line-height: 1.4;
+}
+
+.rename-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.rename-input {
+  flex: 1;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: var(--radius);
+  color: var(--ui-text);
+  padding: 4px 8px;
+  font-size: 0.9rem;
 }
 
 .host-badge {
@@ -217,8 +298,8 @@ body {
 
 .felt-table {
   position: relative;
-  width: min(820px, 96vw);
-  aspect-ratio: 2 / 1;
+  width: min(1060px, 96vw);
+  aspect-ratio: 5 / 2.8;
   background: var(--felt);
   border-radius: 50%;
   border: 10px solid var(--felt-rim);
@@ -337,6 +418,13 @@ body {
   text-transform: uppercase;
 }
 
+.player-action-label {
+  font-size: 0.65rem;
+  color: #86efac;
+  font-weight: 700;
+}
+
+
 .player-bet {
   position: absolute;
   bottom: -22px;
@@ -371,8 +459,8 @@ body {
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 .card {
-  width: 52px;
-  height: 74px;
+  width: 62px;
+  height: 88px;
   border-radius: 6px;
   border: 1.5px solid rgba(0,0,0,0.2);
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
@@ -382,9 +470,9 @@ body {
 }
 
 .card-small {
-  width: 30px;
-  height: 43px;
-  border-radius: 4px;
+  width: 58px;
+  height: 83px;
+  border-radius: 5px;
 }
 
 .card-back {
@@ -409,20 +497,20 @@ body {
 
 .card-corner {
   position: absolute;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1.1;
   text-align: center;
 }
-.card-small .card-corner { font-size: 0.45rem; }
+.card-small .card-corner { font-size: 0.75rem; }
 
-.card-tl { top: 3px; left: 4px; }
-.card-br { bottom: 3px; right: 4px; transform: rotate(180deg); }
+.card-tl { top: 4px; left: 5px; }
+.card-br { bottom: 4px; right: 5px; transform: rotate(180deg); }
 
 .card-center {
-  font-size: 1.5rem;
+  font-size: 1.8rem;
 }
-.card-small .card-center { font-size: 0.9rem; }
+.card-small .card-center { font-size: 1.6rem; }
 
 /* ── Action panel ────────────────────────────────────────────────────────── */
 .action-panel {
@@ -447,6 +535,337 @@ body {
   accent-color: #2563eb;
 }
 
+/* ── Settings ────────────────────────────────────────────────────────────── */
+.settings-btn {
+  position: fixed;
+  top: 16px;
+  left: 20px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid #374151;
+  border-radius: 20px;
+  color: var(--ui-muted);
+  font-size: 1rem;
+  padding: 2px 10px;
+  cursor: pointer;
+  z-index: 50;
+  transition: background 0.15s, color 0.15s;
+}
+.settings-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.settings-modal {
+  background: var(--ui-surface);
+  border: 1px solid #374151;
+  border-radius: 12px;
+  padding: 28px;
+  width: min(480px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--chip-gold);
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  cursor: pointer;
+}
+
+.settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-label-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.settings-label-desc {
+  font-size: 0.8rem;
+  color: var(--ui-muted);
+  line-height: 1.4;
+}
+
+.settings-toggle {
+  width: 20px;
+  height: 20px;
+  accent-color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── Odds panel ──────────────────────────────────────────────────────────── */
+.odds-panel {
+  background: rgba(10,10,25,0.88);
+  border: 1px solid #374151;
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 300px;
+  max-width: 420px;
+}
+
+.odds-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--chip-gold);
+  margin-bottom: 2px;
+}
+
+.odds-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #1f2937;
+}
+
+.odds-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.odds-label {
+  color: var(--ui-muted);
+  min-width: 80px;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+
+.odds-value {
+  color: var(--ui-text);
+  font-weight: 600;
+}
+
+.odds-muted {
+  color: var(--ui-muted);
+  font-weight: 400;
+}
+
+.odds-recommendation {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+  background: rgba(255,255,255,0.04);
+  margin-top: 2px;
+}
+
+.odds-action {
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.odds-reason {
+  font-size: 0.75rem;
+  color: var(--ui-muted);
+  line-height: 1.4;
+}
+
+.odds-raise-suggestion {
+  font-size: 0.75rem;
+  color: var(--ui-text);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.odds-explain-link {
+  color: #60a5fa;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.odds-explain-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.odds-dist-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ui-muted);
+  margin-bottom: 2px;
+}
+
+.odds-dist-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+}
+
+.odds-dist-label {
+  color: var(--ui-muted);
+  width: 110px;
+  flex-shrink: 0;
+}
+
+.odds-dist-bar-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.odds-dist-bar {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.odds-dist-pct {
+  color: var(--ui-text);
+  font-weight: 600;
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ── Hand rankings guide ─────────────────────────────────────────────────── */
+.rankings-btn {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  color: var(--ui-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  z-index: 50;
+}
+.rankings-btn:hover { background: rgba(255,255,255,0.08); }
+
+.rankings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.rankings-modal {
+  background: var(--ui-surface);
+  border: 1px solid #374151;
+  border-radius: 12px;
+  padding: 24px;
+  width: min(600px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rankings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rankings-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--chip-gold);
+}
+
+.rankings-close {
+  background: none;
+  border: none;
+  color: var(--ui-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.rankings-close:hover { color: #fff; background: rgba(255,255,255,0.08); }
+
+.rankings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rankings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.rankings-rank {
+  font-size: 0.72rem;
+  color: var(--ui-muted);
+  width: 24px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.rankings-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ui-text);
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.rankings-cards {
+  display: flex;
+  gap: 3px;
+}
+
 /* ── Phase indicator ─────────────────────────────────────────────────────── */
 .phase-indicator {
   position: fixed;
@@ -458,3 +877,127 @@ body {
   padding: 4px 14px;
   border-radius: 20px;
 }
+
+/* ── Hand history panel ───────────────────────────────────────────────────── */
+.hh-panel {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  max-width: 360px;
+  width: 360px;
+}
+
+.hh-toggle {
+  background: rgba(0,0,0,0.7);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  color: var(--ui-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.hh-toggle:hover { background: rgba(255,255,255,0.08); }
+
+.hh-list {
+  width: 100%;
+  background: rgba(10,10,20,0.92);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  margin-top: 6px;
+  max-height: 55vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.hh-empty {
+  padding: 16px;
+  color: var(--ui-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.hh-hand {
+  border-bottom: 1px solid #1f2937;
+}
+.hh-hand:last-child { border-bottom: none; }
+
+.hh-hand-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.hh-hand-header:hover { background: rgba(255,255,255,0.04); }
+
+.hh-chevron { font-size: 0.7rem; color: var(--ui-muted); flex-shrink: 0; }
+.hh-hand-title { font-size: 0.8rem; font-weight: 700; color: var(--chip-gold); flex-shrink: 0; }
+.hh-winner-summary { font-size: 0.75rem; color: var(--ui-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.hh-copy-btn {
+  background: #1e3a5f;
+  color: #93c5fd;
+  border: none;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.hh-copy-btn:hover { background: #2563eb; color: #fff; }
+
+.hh-hand-body {
+  padding: 4px 16px 12px 28px;
+  font-size: 0.78rem;
+  color: var(--ui-text);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hh-card {
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
+.hh-street-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ui-muted);
+  letter-spacing: 0.04em;
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+
+.hh-street-cards {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.hh-log-entry {
+  color: #cbd5e1;
+  padding-left: 4px;
+}
+
+.hh-player-name { font-weight: 700; color: #fff; }
+
+.hh-result {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hh-winner-line { color: var(--chip-gold); font-weight: 600; }
+.hh-hand-desc { color: var(--ui-muted); font-weight: 400; }
+.hh-eliminated-line { color: #f87171; font-style: italic; }

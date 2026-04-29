@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import path from 'path';
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -14,14 +15,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve the built React client in production
+const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
+app.use(express.static(clientDist));
+
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 const httpServer = createServer(app);
+const isProd = process.env.NODE_ENV === 'production';
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(
   httpServer,
   {
     cors: {
-      origin: process.env.CLIENT_URL ?? 'http://localhost:5173',
+      origin: isProd ? '*' : (process.env.CLIENT_URL ?? 'http://localhost:5173'),
       methods: ['GET', 'POST'],
     },
   },
@@ -165,6 +171,11 @@ io.on('connection', socket => {
     const entry = manager.handleDisconnect(socket.id);
     if (entry) broadcastState(entry.roomCode);
   });
+});
+
+// SPA fallback — must be registered after all API routes
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, '..', '..', 'client', 'dist', 'index.html'));
 });
 
 const PORT = process.env.PORT ?? 3001;

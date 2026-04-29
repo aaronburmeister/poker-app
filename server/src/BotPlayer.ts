@@ -193,7 +193,7 @@ export class BotPlayer {
       if (callAmount === 0) {
         if (canRaisePreflop && Math.random() < 0.4 && potSize > 0) {
           const betAmount = Math.min(
-            me.bet + Math.floor(potSize * profile.betSizing),
+            Math.max(state.minRaise, me.bet + Math.floor(potSize * profile.betSizing)),
             me.bet + me.chips,
           );
           if (betAmount > state.currentBet) return { type: 'RAISE', amount: betAmount };
@@ -207,7 +207,7 @@ export class BotPlayer {
     if (callAmount === 0) {
       if (canRaisePreflop && me.chips > 0) {
         const betAmount = Math.min(
-          me.bet + Math.floor(potSize * profile.strongBetSizing),
+          Math.max(state.minRaise, me.bet + Math.floor(potSize * profile.strongBetSizing)),
           me.bet + me.chips,
         );
         if (betAmount > state.currentBet) return { type: 'RAISE', amount: betAmount };
